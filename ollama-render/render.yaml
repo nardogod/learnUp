@@ -1,0 +1,4 @@
+# Este arquivo é referência. O Render usa o render.yaml na RAIZ do repo (../render.yaml)
+# Se fizer deploy manual sem Blueprint, use:
+#   Dockerfile Path: ollama-render/Dockerfile
+#   Root Directory: (vazio)

@@ -68,6 +68,40 @@ export async function setWebhook(url: string): Promise<boolean> {
   }
 }
 
+export async function setMyCommands(): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.error("TELEGRAM_BOT_TOKEN not set");
+    return false;
+  }
+
+  const commands = [
+    { command: "start", description: "Iniciar / Welcome" },
+    { command: "addword", description: "Adicionar nova palavra" },
+    { command: "frase", description: "Gerar frase com suas palavras" },
+    { command: "palavras", description: "Ver suas palavras" },
+    { command: "ranking", description: "Top 3 usuários" },
+    { command: "plan", description: "Ver plano e limites" },
+    { command: "cancel", description: "Cancelar operação" },
+  ];
+
+  try {
+    const res = await fetch(`${TELEGRAM_API}${token}/setMyCommands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ commands }),
+    });
+    if (!res.ok) {
+      console.error("setMyCommands error:", await res.text());
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("setMyCommands exception:", e);
+    return false;
+  }
+}
+
 export function validateWebhookSecret(request: Request): boolean {
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
   if (!secret) return true; // skip if not configured

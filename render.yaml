@@ -1,0 +1,19 @@
+# Blueprint para deploy do Ollama no Render (usado pelo LearnUP)
+# Render procura render.yaml na raiz do repositório
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: learnup-ollama
+    runtime: docker
+    dockerfilePath: ./ollama-render/Dockerfile
+    dockerContext: ./ollama-render
+    region: oregon
+
+    plan: starter
+
+    envVars:
+      - key: OLLAMA_MODEL
+        value: qwen2.5:1.5b
+
+    healthCheckPath: /api/tags

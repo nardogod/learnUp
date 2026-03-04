@@ -1,7 +1,11 @@
 import "dotenv/config";
 import * as readline from "readline";
+import { neonConfig } from "@neondatabase/serverless";
+import ws from "ws";
 import { PrismaClient } from "@prisma/client";
 import { PrismaNeon } from "@prisma/adapter-neon";
+
+neonConfig.webSocketConstructor = ws;
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
@@ -21,6 +25,21 @@ function ask(question: string): Promise<string> {
 
 const LANGUAGES = ["português", "inglês", "svenska"];
 
+const TIMEZONES = [
+  { name: "Brasil (São Paulo)", value: "America/Sao_Paulo" },
+  { name: "Suécia (Estocolmo)", value: "Europe/Stockholm" },
+  { name: "UK (Londres)", value: "Europe/London" },
+  { name: "Pular / deixar vazio", value: "" },
+];
+
+function parseOption<T>(input: string, options: T[], getValue: (o: T) => string): T | null {
+  const n = parseInt(input, 10);
+  if (n >= 1 && n <= options.length) return options[n - 1];
+  const lower = input.toLowerCase();
+  const found = options.find((o) => getValue(o).toLowerCase() === lower);
+  return found ?? null;
+}
+
 async function main() {
   console.log("\n=== LearnUP - Cadastro de Usuário ===\n");
 
@@ -32,20 +51,23 @@ async function main() {
   }
 
   const email = await ask("Email do usuário? ");
-  const nativeLanguage = await ask(
-    `Qual idioma o usuário fala? (${LANGUAGES.join(" | ")}): `
-  );
-  if (!LANGUAGES.includes(nativeLanguage.toLowerCase())) {
-    console.error(`Idioma inválido. Use: ${LANGUAGES.join(", ")}`);
+
+  console.log("\nQual idioma o usuário fala?");
+  LANGUAGES.forEach((l, i) => console.log(`  ${i + 1}. ${l}`));
+  const nativeInput = await ask("Opção (1-3): ");
+  const nativeLanguage = parseOption(nativeInput, LANGUAGES, (l) => l);
+  if (!nativeLanguage) {
+    console.error(`Opção inválida. Use 1, 2 ou 3.`);
     rl.close();
     process.exit(1);
   }
 
-  const targetLanguage = await ask(
-    `Qual idioma o usuário quer aprender? (${LANGUAGES.join(" | ")}): `
-  );
-  if (!LANGUAGES.includes(targetLanguage.toLowerCase())) {
-    console.error(`Idioma inválido. Use: ${LANGUAGES.join(", ")}`);
+  console.log("\nQual idioma o usuário quer aprender?");
+  LANGUAGES.forEach((l, i) => console.log(`  ${i + 1}. ${l}`));
+  const targetInput = await ask("Opção (1-3): ");
+  const targetLanguage = parseOption(targetInput, LANGUAGES, (l) => l);
+  if (!targetLanguage) {
+    console.error(`Opção inválida. Use 1, 2 ou 3.`);
     rl.close();
     process.exit(1);
   }
@@ -58,8 +80,11 @@ async function main() {
     process.exit(1);
   }
 
-  const plan = await ask("Plano? (free | premium): ");
-  const isPremium = plan.toLowerCase() === "premium";
+  console.log("\nPlano?");
+  console.log("  1. free");
+  console.log("  2. premium");
+  const planInput = await ask("Opção (1-2): ");
+  const isPremium = planInput === "2" || planInput.toLowerCase() === "premium";
 
   let phrasesPerDay: number | null = null;
   if (isPremium) {
@@ -68,7 +93,15 @@ async function main() {
     phrasesPerDay = n >= 1 && n <= 10 ? n : 3;
   }
 
-  const timezone = await ask("Timezone? (opcional, ex: America/Sao_Paulo): ");
+  console.log("\nTimezone? (opcional)");
+  TIMEZONES.forEach((t, i) => console.log(`  ${i + 1}. ${t.name}${t.value ? ` (${t.value})` : ""}`));
+  const tzInput = await ask("Opção (1-4): ");
+  let timezone: string | null = null;
+  const tzNum = parseInt(tzInput, 10);
+  if (tzNum >= 1 && tzNum <= TIMEZONES.length) {
+    const t = TIMEZONES[tzNum - 1];
+    timezone = t.value || null;
+  }
 
   try {
     const user = await prisma.user.create({

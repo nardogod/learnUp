@@ -12,6 +12,10 @@ const mockPrisma = {
     count: vi.fn(),
     create: vi.fn(),
   },
+  phraseSent: {
+    findMany: vi.fn().mockResolvedValue([]),
+    create: vi.fn().mockResolvedValue({}),
+  },
 };
 
 vi.mock("./db", () => ({ prisma: mockPrisma }));
@@ -47,11 +51,11 @@ describe("handleMessage - state flow", () => {
     mockPrisma.user.update.mockResolvedValue(mockUser);
   });
 
-  it("transitions idle -> aguardando_palavra on 'palavra nova'", async () => {
+  it("transitions idle -> aguardando_palavra on /addword", async () => {
     const { handleMessage } = await import("./states");
     const { sendMessage } = await import("./telegram");
 
-    await handleMessage(mockUser, "palavra nova", "chat1");
+    await handleMessage(mockUser, "/addword", "chat1");
 
     expect(mockPrisma.user.update).toHaveBeenCalledWith(
       expect.objectContaining({

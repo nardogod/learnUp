@@ -16,18 +16,38 @@ export async function GET(request: NextRequest) {
     include: { words: true },
   });
 
+  const today = new Date();
+  const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
   let sent = 0;
   for (const user of users) {
+    const phrasesToday = await prisma.phraseSent.findMany({
+      where: { userId: user.id, sentAt: { gte: startOfDay } },
+    });
+    const countByPhrase = new Map<string, number>();
+    for (const p of phrasesToday) {
+      countByPhrase.set(p.sentenceTarget, (countByPhrase.get(p.sentenceTarget) ?? 0) + 1);
+    }
+    const excludePhrases = Array.from(countByPhrase.entries())
+      .filter(([, c]) => c >= 2)
+      .map(([s]) => s);
+
     const result = await generatePhrase(
       user.targetLanguage,
       user.nativeLanguage,
-      user.words.map((w: { word: string; translation: string }) => ({ word: w.word, translation: w.translation }))
+      user.words.map((w: { word: string; translation: string }) => ({ word: w.word, translation: w.translation })),
+      excludePhrases.length > 0 ? { excludePhrases } : undefined
     );
     if (result) {
       const greeting = getMessage(user.nativeLanguage, "goodAfternoon");
       const body = `${greeting}\n\n📝 ${result.sentenceTarget}\n🇧🇷 ${result.sentenceNative}\n\n📚 ${result.wordsUsed.join(", ")}${result.tip ? `\n\n💡 ${result.tip}` : ""}`;
       const ok = await sendMessage(user.telegramId, body);
-      if (ok) sent++;
+      if (ok) {
+        sent++;
+        await prisma.phraseSent.create({
+          data: { userId: user.id, sentenceTarget: result.sentenceTarget },
+        });
+      }
     }
   }
 

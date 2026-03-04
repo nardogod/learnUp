@@ -1,5 +1,5 @@
 const OLLAMA_BASE = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-const MODEL = "qwen2.5:7b";
+const MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5:7b";
 
 export interface PhraseResult {
   sentenceTarget: string;
@@ -11,16 +11,23 @@ export interface PhraseResult {
 export async function generatePhrase(
   targetLanguage: string,
   nativeLanguage: string,
-  words: { word: string; translation: string }[]
+  words: { word: string; translation: string }[],
+  options?: { excludePhrases?: string[] }
 ): Promise<PhraseResult | null> {
   const wordsList = words
     .map((w) => `- "${w.word}": ${w.translation}`)
     .join("\n");
 
+  const excludeNote =
+    options?.excludePhrases && options.excludePhrases.length > 0
+      ? `\nNÃO repita estas frases (já enviadas 2x hoje):\n${options.excludePhrases.map((p) => `- ${p}`).join("\n")}\n`
+      : "";
+
   const prompt = `Você é professor de ${targetLanguage}. O aluno fala ${nativeLanguage}.
 
-Palavras disponíveis:
+Palavras disponíveis (tradução pode ser curta ou explicação longa - use o contexto completo):
 ${wordsList}
+${excludeNote}
 
 Gere:
 1) Uma frase natural em ${targetLanguage} (3-6 palavras) usando algumas dessas palavras

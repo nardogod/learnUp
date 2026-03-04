@@ -28,8 +28,20 @@ model User {
   fraseCountToday   Int       @default(0)
   lastFraseDate     DateTime?
   words             Word[]
+  phraseSents       PhraseSent[]
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
+}
+
+model PhraseSent {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sentenceTarget String
+  sentAt         DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, sentAt])
 }
 
 model Word {

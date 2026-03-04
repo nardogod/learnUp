@@ -5,12 +5,11 @@ import { sendMessage } from "./telegram";
 import { canAddWord, canUseManualFrase } from "./limits";
 import { generatePhrase } from "./llm";
 
-const NEW_WORD_TRIGGERS = ["palavra nova", "new word", "nytt ord", "palavra"];
-const FRASE_TRIGGERS = ["gerar frase", "generate phrase", "generera mening", "frase"];
+const FRASE_TRIGGERS = ["gerar frase", "generate phrase", "generera mening", "frase", "me dá uma frase", "give me a sentence", "ge mig en mening"];
 
-function isNewWordTrigger(text: string): boolean {
-  const t = text.toLowerCase().trim();
-  return NEW_WORD_TRIGGERS.some((w) => t.includes(w)) || t === "/novapalavra";
+function isAddWordCommand(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return t === "/addword" || t === "/novapalavra" || t === "/newword" || t === "/nyttord";
 }
 
 function isFraseTrigger(text: string): boolean {
@@ -24,6 +23,16 @@ function isCancelTrigger(text: string): boolean {
 
 export async function handleMessage(user: User, text: string, chatId: string): Promise<void> {
   const state = user.conversationState ?? "idle";
+
+  // /start - cancela fluxo e mostra boas-vindas
+  if (text.trim() === "/start") {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { conversationState: "idle", tempWord: null },
+    });
+    await sendMessage(chatId, getMessage(user.nativeLanguage, "welcome"));
+    return;
+  }
 
   // /cancel em qualquer estado
   if (isCancelTrigger(text)) {
@@ -99,30 +108,67 @@ export async function handleMessage(user: User, text: string, chatId: string): P
       await sendMessage(chatId, getMessage(user.nativeLanguage, "noWords"));
       return;
     }
+
+    const today = new Date();
+    const todayStr = today.toDateString();
+    const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    const phrasesToday = await prisma.phraseSent.findMany({
+      where: { userId: user.id, sentAt: { gte: startOfDay } },
+    });
+
+    const countByPhrase = new Map<string, number>();
+    for (const p of phrasesToday) {
+      countByPhrase.set(p.sentenceTarget, (countByPhrase.get(p.sentenceTarget) ?? 0) + 1);
+    }
+    const excludePhrases = Array.from(countByPhrase.entries())
+      .filter(([, c]) => c >= 2)
+      .map(([s]) => s);
+
+    const minWordsForVariety = 5;
+    const maxPhrasesBeforeVariety = Math.max(8, words.length * 3);
+    if (words.length < minWordsForVariety && phrasesToday.length >= maxPhrasesBeforeVariety) {
+      await sendMessage(chatId, getMessage(user.nativeLanguage, "fewWordsForVariety"));
+      return;
+    }
+
     const result = await generatePhrase(
       user.targetLanguage,
       user.nativeLanguage,
-      words.map((w) => ({ word: w.word, translation: w.translation }))
+      words.map((w) => ({ word: w.word, translation: w.translation })),
+      { excludePhrases: excludePhrases.length > 0 ? excludePhrases : undefined }
     );
+
     if (!result) {
-      await sendMessage(chatId, getMessage(user.nativeLanguage, "tryAgain"));
+      if (excludePhrases.length > 0 && words.length < 8) {
+        await sendMessage(chatId, getMessage(user.nativeLanguage, "fewWordsForVariety"));
+      } else {
+        await sendMessage(chatId, getMessage(user.nativeLanguage, "tryAgain"));
+      }
       return;
     }
-    const today = new Date().toDateString();
+
     const lastDate = freshUser.lastFraseDate?.toDateString();
-    const newCount = lastDate === today ? (freshUser.fraseCountToday ?? 0) + 1 : 1;
+    const newCount = lastDate === todayStr ? (freshUser.fraseCountToday ?? 0) + 1 : 1;
     await prisma.user.update({
       where: { id: user.id },
       data: { fraseCountToday: newCount, lastFraseDate: new Date() },
     });
+    await prisma.phraseSent.create({
+      data: {
+        userId: user.id,
+        sentenceTarget: result.sentenceTarget,
+      },
+    });
+
     let out = `📝 ${result.sentenceTarget}\n🇧🇷 ${result.sentenceNative}\n\n📚 ${result.wordsUsed.join(", ")}`;
     if (result.tip) out += `\n\n💡 ${result.tip}`;
     await sendMessage(chatId, out);
     return;
   }
 
-  // Máquina de estados: cadastro de palavra
-  if (state === "idle" && isNewWordTrigger(text)) {
+  // Máquina de estados: cadastro de palavra (só por comando)
+  if (state === "idle" && isAddWordCommand(text)) {
     const wordCount = await prisma.word.count({ where: { userId: user.id } });
     if (!canAddWord(user, wordCount)) {
       await sendMessage(chatId, getMessage(user.nativeLanguage, "limitReached"));
@@ -154,6 +200,11 @@ export async function handleMessage(user: User, text: string, chatId: string): P
     const tempWord = user.tempWord ?? "";
     const translation = text.trim();
     if (!tempWord || !translation) return;
+    // Comandos não são traduções
+    if (translation.startsWith("/")) {
+      await sendMessage(chatId, getMessage(user.nativeLanguage, "whatMeans", { word: tempWord }));
+      return;
+    }
 
     const wordCount = await prisma.word.count({ where: { userId: user.id } });
     if (!canAddWord(user, wordCount)) {
