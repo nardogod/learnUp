@@ -1,0 +1,76 @@
+const TELEGRAM_API = "https://api.telegram.org/bot";
+
+export async function sendMessage(
+  chatId: string | number,
+  text: string,
+  options?: { parse_mode?: "HTML" | "Markdown" }
+): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.error("TELEGRAM_BOT_TOKEN not set");
+    return false;
+  };
+
+  const url = `${TELEGRAM_API}${token}/sendMessage`;
+  const body = {
+    chat_id: chatId,
+    text,
+    parse_mode: options?.parse_mode ?? undefined,
+  };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("Telegram sendMessage error:", res.status, err);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("Telegram sendMessage exception:", e);
+    return false;
+  }
+}
+
+export async function setWebhook(url: string): Promise<boolean> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!token) {
+    console.error("TELEGRAM_BOT_TOKEN not set");
+    return false;
+  }
+
+  const apiUrl = `${TELEGRAM_API}${token}/setWebhook`;
+  const body: { url: string; secret_token?: string } = { url };
+  if (secret) body.secret_token = secret;
+
+  try {
+    const res = await fetch(apiUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("Telegram setWebhook error:", res.status, err);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("Telegram setWebhook exception:", e);
+    return false;
+  }
+}
+
+export function validateWebhookSecret(request: Request): boolean {
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (!secret) return true; // skip if not configured
+  const header = request.headers.get("x-telegram-bot-api-secret-token");
+  return header === secret;
+}

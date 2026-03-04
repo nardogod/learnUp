@@ -1,0 +1,50 @@
+// LearnUP - Bot de Idiomas no Telegram
+// https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id                String    @id @default(cuid())
+  telegramId        String    @unique
+  email             String?
+  name              String?
+  username          String?
+  firstName         String?
+  nativeLanguage    String    // português | inglês | svenska
+  targetLanguage    String    // português | inglês | svenska
+  level             String    @default("iniciante")
+  plan              String    @default("free") // free | premium
+  phrasesPerDay     Int?      // premium: quantidade escolhida pelo usuário (1-10)
+  timezone          String?   // ex: America/Sao_Paulo (opcional)
+  welcomedAt        DateTime? // primeira mensagem enviada (boas-vindas)
+  conversationState String?
+  tempWord          String?
+  fraseCountToday   Int       @default(0)
+  lastFraseDate     DateTime?
+  words             Word[]
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+model Word {
+  id          String    @id @default(cuid())
+  word        String
+  article     String?
+  wordType    String?
+  translation String
+  description String?
+  example     String?
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  timesUsed   Int       @default(0)
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+}
