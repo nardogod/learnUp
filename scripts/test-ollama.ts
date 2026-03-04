@@ -12,13 +12,14 @@ async function test() {
   console.log(`\n🔍 Testando Ollama em ${BASE}\n`);
 
   // 1. Listar modelos
+  let names: string[] = [];
   try {
     const tagsRes = await fetch(`${BASE}/api/tags`);
     if (!tagsRes.ok) {
       throw new Error(`Tags: ${tagsRes.status} ${await tagsRes.text()}`);
     }
     const tags = (await tagsRes.json()) as { models?: { name: string }[] };
-    const names = tags.models?.map((m) => m.name) ?? [];
+    names = tags.models?.map((m) => m.name) ?? [];
     console.log("✅ Modelos disponíveis:", names.length ? names.join(", ") : "(nenhum)");
   } catch (e) {
     console.error("❌ Erro ao listar modelos:", e);
@@ -26,7 +27,16 @@ async function test() {
     process.exit(1);
   }
 
-  // 2. Gerar frase de teste (como o bot faz)
+  // 2. Verificar se o modelo configurado existe
+  const modelExists = names.some((n) => n === MODEL || n.startsWith(MODEL + ":"));
+  if (!modelExists) {
+    console.error(`❌ Modelo "${MODEL}" não encontrado. Disponíveis: ${names.join(", ")}`);
+    console.log(`\n💡 Para local: OLLAMA_MODEL=qwen2.5:7b (ou outro instalado)`);
+    console.log(`   Para Render: OLLAMA_MODEL=qwen2.5:0.5b\n`);
+    process.exit(1);
+  }
+
+  // 3. Gerar frase de teste (como o bot faz)
   try {
     const genRes = await fetch(`${BASE}/api/generate`, {
       method: "POST",

@@ -3,7 +3,7 @@ FROM ollama/ollama:latest
 
 # Pre-pull do modelo durante o build - fica na imagem, start é instantâneo
 RUN ollama serve & \
-    sleep 20 && \
+    sleep 30 && \
     ollama pull qwen2.5:0.5b && \
     pkill ollama || true
 
