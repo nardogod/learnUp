@@ -1,5 +1,6 @@
 # Blueprint para deploy do Ollama no Render (usado pelo LearnUP)
-# Render procura render.yaml na raiz do repositório
+# Plano FREE: 512MB RAM, dorme após 15min sem uso (~1min para acordar)
+# Use qwen2.5:0.5b (~500MB) - o 1.5b pode não caber em 512MB
 # Docs: https://render.com/docs/blueprint-spec
 
 services:
@@ -10,10 +11,10 @@ services:
     dockerContext: ./ollama-render
     region: oregon
 
-    plan: starter
+    plan: free
 
     envVars:
       - key: OLLAMA_MODEL
-        value: qwen2.5:1.5b
+        value: qwen2.5:0.5b
 
     healthCheckPath: /api/tags

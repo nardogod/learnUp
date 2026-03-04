@@ -1,5 +1,5 @@
 const OLLAMA_BASE = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-const MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5:7b";
+const MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5:0.5b";
 
 export interface PhraseResult {
   sentenceTarget: string;

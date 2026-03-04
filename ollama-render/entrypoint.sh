@@ -16,7 +16,7 @@ until curl -s "http://localhost:${PORT}/api/tags" > /dev/null 2>&1; do
 done
 
 # Baixa o modelo (usa variável de ambiente ou padrão)
-MODEL="${OLLAMA_MODEL:-qwen2.5:1.5b}"
+MODEL="${OLLAMA_MODEL:-qwen2.5:0.5b}"
 echo "Baixando modelo $MODEL..."
 ollama pull "$MODEL"
 

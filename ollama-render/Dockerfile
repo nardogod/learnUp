@@ -6,7 +6,7 @@ FROM ollama/ollama:latest
 # qwen2.5:0.5b ~500MB - rápido em CPU
 # qwen2.5:1.5b ~1GB - equilibrado
 # qwen2.5:7b ~4GB - lento em CPU, considere plano maior
-ENV OLLAMA_MODEL=qwen2.5:1.5b
+ENV OLLAMA_MODEL=qwen2.5:0.5b
 
 EXPOSE 11434
 

@@ -2,6 +2,8 @@
 
 Este guia explica como fazer o deploy do Ollama no Render para o bot LearnUP funcionar em produção.
 
+**Plano Free:** 512MB RAM, 750h/mês, dorme após 15 min sem uso (~1 min para acordar). Use modelo `qwen2.5:0.5b`.
+
 ---
 
 ## Pré-requisitos
@@ -71,14 +73,12 @@ Este guia explica como fazer o deploy do Ollama no Render para o bot LearnUP fun
    - **Dockerfile Path:** `ollama-render/Dockerfile`
    - **Docker Context:** `ollama-render`
 
-5. Em **Instance Type**, escolha:
-   - **Free** – para testes (serviço dorme após 15 min)
-   - **Starter (US$ 7/mês)** – recomendado para uso contínuo
+5. Em **Instance Type**, escolha **Free** (512MB RAM).
 
 6. Em **Environment**, adicione:
    | Key | Value |
    |-----|-------|
-   | OLLAMA_MODEL | qwen2.5:1.5b |
+   | OLLAMA_MODEL | qwen2.5:0.5b |
 
 7. Clique em **Create Web Service**.
 
@@ -102,7 +102,7 @@ Este guia explica como fazer o deploy do Ollama no Render para o bot LearnUP fun
    | Key | Value |
    |-----|-------|
    | OLLAMA_BASE_URL | https://learnup-ollama-xxxx.onrender.com |
-   | OLLAMA_MODEL | qwen2.5:1.5b |
+   | OLLAMA_MODEL | qwen2.5:0.5b |
 
 4. Faça um novo deploy (Deployments → ⋮ → Redeploy).
 
@@ -146,5 +146,5 @@ Este guia explica como fazer o deploy do Ollama no Render para o bot LearnUP fun
 - Confirme que `ollama-render/Dockerfile` e `ollama-render/entrypoint.sh` existem no repositório.
 
 **Modelo diferente**
-- Para usar `qwen2.5:7b`, altere `OLLAMA_MODEL` no Render e na Vercel.
-- O modelo 7b é mais pesado e pode ser lento no plano Free/Starter.
+- Plano Free (512MB): use apenas `qwen2.5:0.5b`.
+- Plano pago: pode usar `qwen2.5:1.5b` ou `qwen2.5:7b`.
