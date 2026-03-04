@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const result = await generatePhrase(
       user.targetLanguage,
       user.nativeLanguage,
-      user.words.map((w) => ({ word: w.word, translation: w.translation }))
+      user.words.map((w: { word: string; translation: string }) => ({ word: w.word, translation: w.translation }))
     );
     if (result) {
       const greeting = getMessage(user.nativeLanguage, "goodMorning");
