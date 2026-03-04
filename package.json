@@ -11,6 +11,7 @@
     "register-user": "tsx scripts/register-user.ts",
     "set-commands": "tsx scripts/set-bot-commands.ts",
     "admin": "tsx scripts/admin.ts",
+    "test:ollama": "tsx scripts/test-ollama.ts",
     "docker:build": "docker build -t learnup-ollama ./ollama-render",
     "docker:run": "docker run -p 11434:11434 -e OLLAMA_MODEL=qwen2.5:1.5b learnup-ollama",
     "test:bot": "tsx scripts/test-bot-message.ts",

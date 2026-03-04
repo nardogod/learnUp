@@ -39,6 +39,8 @@ Responda APENAS em JSON válido, sem markdown, sem explicações:
 Opcional: adicione "tip" com dica gramatical ou cultural.`;
 
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 120000);
     const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -48,7 +50,9 @@ Opcional: adicione "tip" com dica gramatical ou cultural.`;
         stream: false,
         format: "json",
       }),
+      signal: controller.signal,
     });
+    clearTimeout(timeout);
 
     if (!res.ok) {
       console.error("Ollama error:", res.status, await res.text());
