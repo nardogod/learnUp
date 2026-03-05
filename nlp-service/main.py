@@ -44,6 +44,8 @@ app = FastAPI(title="LearnUP NLP", lifespan=lifespan)
 POSSESSIVES = {"min", "mitt", "mina", "din", "ditt", "dina", "hans", "hennes", "vår", "er", "deras"}
 VERB_NAME_LEMMAS = {"heta"}  # heter -> heta
 VERB_COPULA_FORMS = {"är", "var", "bli", "blir"}
+ADV_OVERRIDE = {"varifrån", "vart", "var", "hur", "när", "varför", "vad"}
+ADP_OVERRIDE = {"ifrån", "från", "till", "i", "på"}
 
 
 def spacy_pos_to_learnup(token) -> str:
@@ -63,6 +65,12 @@ def spacy_pos_to_learnup(token) -> str:
     # är, var, bli -> VERB_COPULA
     if text in VERB_COPULA_FORMS or lemma in VERB_COPULA_FORMS:
         return "VERB_COPULA"
+
+    # Advérbios/preposições que spaCy pode confundir (ex: Varifrån como PROPN)
+    if text in ADV_OVERRIDE:
+        return "ADV"
+    if text in ADP_OVERRIDE:
+        return "ADP"
 
     # Mapeamento direto UPOS -> LearnUP
     mapping = {
@@ -179,7 +187,10 @@ def validate_sentence(req: ValidateRequest):
         ("POSS", "ADJ"),
         ("POSS", "CONJ"),
         ("POSS", "DET"),
+        ("POSS", "ADP"),
         ("POSS", "INTJ"),
+        ("ADP", "VERB_INTRANS"),
+        ("ADP", "VERB_NAME"),
         ("ADJ", "VERB_INTRANS"),
         ("ADJ", "VERB_NAME"),
         ("CONJ", "VERB_INTRANS"),

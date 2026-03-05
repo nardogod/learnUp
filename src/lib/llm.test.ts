@@ -22,6 +22,9 @@ const words = [
   { word: "och", translation: "e" },
   { word: "det", translation: "isso" },
   { word: "är", translation: "é" },
+  { word: "varifrån", translation: "de onde" },
+  { word: "ifrån", translation: "de" },
+  { word: "kommer", translation: "vem" },
 ];
 
 describe("validateSwedishGrammar", () => {
@@ -156,5 +159,18 @@ describe("validateSwedishGrammar", () => {
   });
   it("aceita Min vän är bra", () => {
     expect(validateSwedishGrammar("Min vän är bra", words).valid).toBe(true);
+  });
+  it("rejeita Min ifrån (POSS + preposição)", () => {
+    const r = validateSwedishGrammar("Min ifrån", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("proibida");
+  });
+  it("rejeita Min Varifrån heter Maria (POSS + ADV)", () => {
+    const r = validateSwedishGrammar("Min Varifrån heter Maria", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("proibida");
+  });
+  it("aceita Varifrån kommer du", () => {
+    expect(validateSwedishGrammar("Varifrån kommer du", words).valid).toBe(true);
   });
 });
