@@ -91,6 +91,82 @@ function extractWordsFromSentence(sentence: string): string[] {
     .filter((w) => w.length > 0);
 }
 
+/** Léxico sueco: classificação gramatical (PRON, POSS, NOUN, VERB_INTRANS, VERB_NAME) */
+const SWEDISH_LEXICON: Record<string, string> = {
+  jag: "PRON",
+  du: "PRON",
+  han: "PRON",
+  hon: "PRON",
+  vi: "PRON",
+  de: "PRON",
+  min: "POSS",
+  mitt: "POSS",
+  mina: "POSS",
+  din: "POSS",
+  ditt: "POSS",
+  dina: "POSS",
+  heter: "VERB_NAME",
+  odlar: "VERB_INTRANS",
+  är: "VERB_INTRANS",
+  har: "VERB_INTRANS",
+  går: "VERB_INTRANS",
+  kommer: "VERB_INTRANS",
+};
+
+/** Padrões gramaticais válidos (sueco): sequências de categorias */
+const SWEDISH_VALID_PATTERNS = [
+  ["PRON", "VERB_INTRANS"],
+  ["POSS", "NOUN"],
+  ["PRON", "VERB_NAME", "NOUN"],
+  ["POSS", "NOUN", "VERB_INTRANS"],
+  ["POSS", "NOUN", "VERB_NAME", "NOUN"],
+];
+
+function getSwedishCategory(word: string, userWords: Set<string>): string {
+  const lower = word.toLowerCase();
+  if (SWEDISH_LEXICON[lower]) return SWEDISH_LEXICON[lower];
+  if (userWords.has(lower)) return "NOUN";
+  return "UNKNOWN";
+}
+
+/** Valida se a frase em sueco segue a gramática (padrões A-E) */
+export function validateSwedishGrammar(
+  sentenceTarget: string,
+  userWords: { word: string }[]
+): { valid: boolean; reason?: string } {
+  const tokens = extractWordsFromSentence(sentenceTarget);
+  if (tokens.length === 0) return { valid: false, reason: "frase vazia" };
+  const userSet = new Set(userWords.map((w) => w.word.toLowerCase()));
+  const categories = tokens.map((t) => getSwedishCategory(t, userSet));
+  if (categories.some((c) => c === "UNKNOWN")) return { valid: false, reason: "palavra desconhecida" };
+
+  const matchesPattern = SWEDISH_VALID_PATTERNS.some(
+    (pat) => pat.length === categories.length && categories.every((c, i) => c === pat[i])
+  );
+  if (matchesPattern) return { valid: true };
+
+  if (categories[0] === "POSS" && categories[1] !== "NOUN") {
+    return { valid: false, reason: '"min" precisa de um substantivo após ele' };
+  }
+  if (categories.includes("NOUN") && categories.indexOf("NOUN") < categories.length - 1) {
+    const nextIdx = categories.indexOf("NOUN") + 1;
+    if (categories[nextIdx] === "NOUN") {
+      return { valid: false, reason: "dois substantivos seguidos sem verbo são inválidos" };
+    }
+  }
+  if (categories[0] === "PRON" && categories[1] !== "VERB_INTRANS" && categories[1] !== "VERB_NAME") {
+    return { valid: false, reason: "verbo obrigatório após jag" };
+  }
+  if (categories[0] === "NOUN" && categories[1] === "POSS") {
+    return { valid: false, reason: "possessivo deve vir antes do substantivo" };
+  }
+  const heterIdx = categories.indexOf("VERB_NAME");
+  if (heterIdx >= 0 && (heterIdx === categories.length - 1 || categories[heterIdx + 1] !== "NOUN")) {
+    return { valid: false, reason: "heter exige complemento nominal" };
+  }
+  return { valid: false, reason: "estrutura gramatical inválida" };
+}
+
 /** Verifica se todas as palavras da frase estão no vocabulário do usuário (case-insensitive) */
 export function validatePhraseUsesOnlyVocabulary(
   sentenceTarget: string,
@@ -126,13 +202,29 @@ export async function generatePhrase(
     }
 
     const { valid, unknownWords } = validatePhraseUsesOnlyVocabulary(result.sentenceTarget, words);
-    if (valid) return result;
+    if (!valid) {
+      console.warn(`[generatePhrase] attempt ${attempt}: palavras inválidas: ${unknownWords.join(", ")}`);
+      currentOptions = {
+        ...currentOptions,
+        excludePhrases: [...(currentOptions?.excludePhrases ?? []), result.sentenceTarget],
+      };
+      continue;
+    }
 
-    console.warn(`[generatePhrase] attempt ${attempt}: palavras inválidas: ${unknownWords.join(", ")}`);
-    currentOptions = {
-      ...currentOptions,
-      excludePhrases: [...(currentOptions?.excludePhrases ?? []), result.sentenceTarget],
-    };
+    const lang = targetLanguage.toLowerCase();
+    const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang === "sv";
+    if (isSwedish) {
+      const grammar = validateSwedishGrammar(result.sentenceTarget, words);
+      if (!grammar.valid) {
+        console.warn(`[generatePhrase] attempt ${attempt}: gramática inválida: ${grammar.reason}`);
+        currentOptions = {
+          ...currentOptions,
+          excludePhrases: [...(currentOptions?.excludePhrases ?? []), result.sentenceTarget],
+        };
+        continue;
+      }
+    }
+    return result;
   }
   console.warn(`[generatePhrase] falhou após ${maxAttempts} tentativas (${getLLMProvider()}), usando fallback`);
   return generateFallbackPhrase(targetLanguage, nativeLanguage, words, options?.excludePhrases ?? []);
@@ -180,6 +272,15 @@ async function generateFallbackPhrase(
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 
   const candidates: { sentenceTarget: string; wordsUsed: { word: string; translation: string }[] }[] = [];
+
+  if (possessives.length > 0 && nouns.length > 0) {
+    for (const p of possessives) {
+      for (const n of nouns) {
+        const sent = `${cap(p.word)} ${n.word}`;
+        if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [p, n] });
+      }
+    }
+  }
 
   if (subjects.length > 0 && verbs.length > 0) {
     const subj = subjects[0];
@@ -236,7 +337,7 @@ async function generateFallbackPhrase(
   return generateRandomPairFallback(targetLanguage, nativeLanguage, words, excludePhrases);
 }
 
-/** Fallback secundário: pares aleatórios (para idiomas sem templates) */
+/** Fallback secundário: pares aleatórios (apenas estruturas válidas para sueco) */
 async function generateRandomPairFallback(
   targetLanguage: string,
   nativeLanguage: string,
@@ -244,6 +345,9 @@ async function generateRandomPairFallback(
   excludePhrases: string[]
 ): Promise<PhraseResult | null> {
   if (words.length < 2) return null;
+  const lang = targetLanguage.toLowerCase();
+  const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang === "sv";
+
   const shuffled = [...words].sort(() => Math.random() - 0.5);
   for (let i = 0; i < shuffled.length; i++) {
     for (let j = 0; j < shuffled.length; j++) {
@@ -252,6 +356,12 @@ async function generateRandomPairFallback(
       const w2 = shuffled[j];
       const sentenceTarget = w1.word.charAt(0).toUpperCase() + w1.word.slice(1).toLowerCase() + " " + w2.word.toLowerCase();
       if (excludePhrases.some((p) => p.toLowerCase() === sentenceTarget.toLowerCase())) continue;
+
+      if (isSwedish) {
+        const grammar = validateSwedishGrammar(sentenceTarget, words);
+        if (!grammar.valid) continue;
+      }
+
       const sentenceNative = await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [w1, w2]);
       if (sentenceNative) {
         return { sentenceTarget, sentenceNative, wordsUsed: [w1.word, w2.word] };
@@ -271,7 +381,11 @@ async function translateSimple(
     wordsUsed && wordsUsed.length > 0
       ? `\nContexto (significados corretos): ${wordsUsed.map((w) => `"${w.word}" = ${w.translation}`).join(", ")}\n`
       : "";
-  const prompt = `Traduza esta frase de ${fromLang} para ${toLang}. Use os significados corretos das palavras.${context}\nFrase: "${sentence}"\n\nResponda APENAS com a tradução em ${toLang}, nada mais.`;
+  const heterNote =
+    sentence.toLowerCase().includes("heter") && wordsUsed && wordsUsed.some((w) => w.word.toLowerCase() === "heter")
+      ? "\nImportante: 'heter' = chamar-se. A estrutura é [sujeito] heter [nome]. Traduza como '[sujeito] se chama [nome]', com o complemento como nome próprio (ex: Meu amigo se chama Esposa).\n"
+      : "";
+  const prompt = `Traduza esta frase de ${fromLang} para ${toLang}. Use os significados corretos das palavras.${context}${heterNote}\nFrase: "${sentence}"\n\nResponda APENAS com a tradução em ${toLang}, nada mais.`;
   try {
     if (GROQ_API_KEY) {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
