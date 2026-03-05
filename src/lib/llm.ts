@@ -154,6 +154,19 @@ const SWEDISH_PROPER_NAMES = new Set([
   "joão", "pedro", "carlos", "lucia", "ingrid", "björn", "karl", "stina",
 ]);
 
+/** Substantivos que normalmente referem-se a pessoas (podem ser sujeito de "heter") */
+const SWEDISH_PERSON_NOUNS = new Set([
+  "vän",
+  "vänner",
+  "kompis",
+  "kompisar",
+  "fru",
+  "kvinna",
+  "man",
+  "pojke",
+  "flicka",
+]);
+
 /** Padrões gramaticais válidos (sueco) */
 const SWEDISH_VALID_PATTERNS = [
   ["PRON", "VERB_INTRANS"],
@@ -266,6 +279,20 @@ export function validateSwedishGrammar(
     }
     if (complement !== "PROPN") {
       return { valid: false, reason: "heter exige nome próprio como complemento" };
+    }
+
+    // Heurística extra: sujeito de "heter" deve ser PRON ou substantivo de pessoa
+    if (heterIdx > 0) {
+      let subjectIdx = heterIdx - 1;
+      const possWords = new Set(["min", "mitt", "mina", "din", "ditt", "dina", "hans", "hennes", "vår", "er", "deras"]);
+      if (heterIdx >= 2 && possWords.has(tokens[heterIdx - 2].toLowerCase())) {
+        subjectIdx = heterIdx - 1;
+      }
+      const subjectCat = categories[subjectIdx];
+      const subjectWord = tokens[subjectIdx]?.toLowerCase() ?? "";
+      if (subjectCat === "NOUN" && !SWEDISH_PERSON_NOUNS.has(subjectWord)) {
+        return { valid: false, reason: `"heter" deve ter sujeito de pessoa (vän, fru, kvinna...), não "${subjectWord}"` };
+      }
     }
   }
 
@@ -398,7 +425,21 @@ export async function generatePhrase(
     return result;
   }
   console.warn(`[generatePhrase] falhou após ${maxAttempts} tentativas (${getLLMProvider()}), usando fallback`);
-  return generateFallbackPhrase(targetLanguage, nativeLanguage, words, options?.excludePhrases ?? []);
+  const fallback = await generateFallbackPhrase(
+    targetLanguage,
+    nativeLanguage,
+    words,
+    options?.excludePhrases ?? []
+  );
+  if (fallback) return fallback;
+
+  const lang = targetLanguage.toLowerCase();
+  const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang.includes("swedish") || lang === "sv";
+  if (isSwedish) {
+    const lastResort = await generateLastResortPhrase(targetLanguage, nativeLanguage, words);
+    if (lastResort) return lastResort;
+  }
+  return null;
 }
 
 /** Classifica palavras por papel gramatical (sueco) */
@@ -449,6 +490,84 @@ function classifyWords(words: { word: string; translation: string }[]): {
     else nouns.push(w);
   }
   return { subjects, possessives, verbs, copula, nouns, properNames, adverbs, adjectives, determiners, interjections };
+}
+
+/** Último recurso: tenta construir 1 frase sueca boa conhecida antes de desistir */
+async function generateLastResortPhrase(
+  targetLanguage: string,
+  nativeLanguage: string,
+  words: { word: string; translation: string }[]
+): Promise<PhraseResult | null> {
+  const { subjects, verbs, properNames, adverbs, adjectives, interjections } = classifyWords(words);
+  const lowerSet = new Set(words.map((w) => w.word.toLowerCase()));
+
+  const has = (w: string) => lowerSet.has(w.toLowerCase());
+
+  // 1) Jag mår bra, tack.
+  if (has("jag") && has("mår") && has("bra") && (has("tack") || interjections.some((i) => i.word.toLowerCase() === "tack"))) {
+    const sentenceTarget = "Jag mår bra, tack.";
+    const sentenceNative =
+      (await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [
+        { word: "jag", translation: "eu" },
+        { word: "mår", translation: "estar (saúde)" },
+        { word: "bra", translation: "bem" },
+        { word: "tack", translation: "obrigado" },
+      ])) ?? "Eu estou bem, obrigado.";
+    return {
+      sentenceTarget,
+      sentenceNative,
+      wordsUsed: ["jag", "mår", "bra", "tack"].filter((w) => has(w)),
+    };
+  }
+
+  // 2) Varifrån kommer du?
+  if (has("varifrån") && has("kommer") && has("du")) {
+    const sentenceTarget = "Varifrån kommer du?";
+    const sentenceNative =
+      (await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [
+        { word: "varifrån", translation: "de onde" },
+        { word: "kommer", translation: "vem" },
+        { word: "du", translation: "você" },
+      ])) ?? "De onde você vem?";
+    return {
+      sentenceTarget,
+      sentenceNative,
+      wordsUsed: ["Varifrån", "kommer", "du"],
+    };
+  }
+
+  // 3) Jag heter <nome>
+  if (has("jag") && has("heter") && properNames.length > 0) {
+    const name = properNames[0];
+    const sentenceTarget = `Jag heter ${name.word}`;
+    const sentenceNative =
+      (await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [
+        { word: "jag", translation: "eu" },
+        { word: "heter", translation: "chamar-se" },
+        { word: name.word, translation: name.translation },
+      ])) ?? `Eu me chamo ${name.translation || name.word}.`;
+    return {
+      sentenceTarget,
+      sentenceNative,
+      wordsUsed: ["jag", "heter", name.word],
+    };
+  }
+
+  // 4) Fallback: primeira combinação válida de sujeito + verbo
+  if (subjects.length > 0 && verbs.length > 0) {
+    const subj = subjects[0];
+    const v = verbs[0];
+    const sentenceTarget = `${subj.word} ${v.word}`;
+    const sentenceNative =
+      (await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [subj, v])) ?? "";
+    return {
+      sentenceTarget,
+      sentenceNative: sentenceNative || `${subj.translation} ${v.translation}`,
+      wordsUsed: [subj.word, v.word],
+    };
+  }
+
+  return null;
 }
 
 /** Fallback: usa templates gramaticais quando o LLM falha */
@@ -549,11 +668,13 @@ async function generateFallbackPhrase(
   if (possessives.length > 0 && nouns.length > 0 && verbs.length > 0) {
     for (const p of possessives) {
       for (const n of nouns) {
+        const nounLower = n.word.toLowerCase();
         for (const v of verbs) {
-          if (v.word.toLowerCase() === "odlar") {
+          const vLower = v.word.toLowerCase();
+          if (vLower === "odlar") {
             const sent = `${cap(p.word)} ${n.word} ${v.word}`;
             if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [p, n, v] });
-          } else if (v.word.toLowerCase() === "heter" && properNames.length > 0) {
+          } else if (vLower === "heter" && properNames.length > 0 && SWEDISH_PERSON_NOUNS.has(nounLower)) {
             for (const pn of properNames) {
               const sent = `${cap(p.word)} ${n.word} ${v.word} ${pn.word}`;
               if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [p, n, v, pn] });
