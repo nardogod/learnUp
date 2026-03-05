@@ -136,7 +136,12 @@ async function generateFallbackPhrase(
       const sentenceTarget = w1.charAt(0).toUpperCase() + w1.slice(1).toLowerCase() + " " + w2.toLowerCase();
       if (excludePhrases.some((p) => p.toLowerCase() === sentenceTarget.toLowerCase())) continue;
 
-      const sentenceNative = await translateSimple(sentenceTarget, targetLanguage, nativeLanguage);
+      const sentenceNative = await translateSimple(
+        sentenceTarget,
+        targetLanguage,
+        nativeLanguage,
+        [shuffled[i], shuffled[j]]
+      );
       if (sentenceNative) {
         return {
           sentenceTarget,
@@ -152,9 +157,14 @@ async function generateFallbackPhrase(
 async function translateSimple(
   sentence: string,
   fromLang: string,
-  toLang: string
+  toLang: string,
+  wordsUsed?: { word: string; translation: string }[]
 ): Promise<string | null> {
-  const prompt = `Traduza exatamente esta frase de ${fromLang} para ${toLang}. Responda APENAS com a tradução, nada mais.\n\n"${sentence}"`;
+  const context =
+    wordsUsed && wordsUsed.length > 0
+      ? `\nContexto (significados corretos): ${wordsUsed.map((w) => `"${w.word}" = ${w.translation}`).join(", ")}\n`
+      : "";
+  const prompt = `Traduza esta frase de ${fromLang} para ${toLang}. Use os significados corretos das palavras.${context}\nFrase: "${sentence}"\n\nResponda APENAS com a tradução em ${toLang}, nada mais.`;
   try {
     if (GROQ_API_KEY) {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
