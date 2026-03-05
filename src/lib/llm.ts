@@ -20,7 +20,7 @@ export interface PhraseResult {
 function getGrammarRules(targetLanguage: string): string | null {
   const lang = targetLanguage.toLowerCase();
   if (lang.includes("svensk") || lang.includes("sueco") || lang.includes("swedish") || lang === "sv") {
-    return "heter exige nome próprio (Anna, Erik). min exige substantivo depois (min fru, min vän). bra=adjetivo (Jag är bra). och=conjunção (Jag odlar och du mår). det=determinante (Det är bra). är=verbo de ligação (é/está). NUNCA: min+adjetivo, min+conjunção, min+det, min+verbo, min+advérbio. Ex válidos: Jag är bra, Det är bra, Min fru odlar. Ex inválidos: Min bra, Min och, Min det.";
+    return "heter exige nome próprio (Anna, Erik). min exige substantivo depois (min fru, min vän). bra=adjetivo (Jag är bra). och=conjunção (Jag odlar och du mår). det=determinante (Det är bra). är=verbo de ligação (é/está). varifrån/ifrån/vart=advérbios/preposições (Varifrån kommer du?). NUNCA: min+adjetivo, min+conjunção, min+det, min+verbo, min+advérbio, min+preposição (min ifrån), min+varifrån/vart. Ex válidos: Min fru heter Anna, Varifrån kommer du, Jag är bra. Ex inválidos: Min bra, Min och, Min ifrån, Min Vart.";
   }
   if (lang.includes("inglês") || lang.includes("english") || lang === "en") {
     return "Verbos exigem sujeito. Possessivos (my, your) exigem substantivo depois. Forme frases gramaticalmente corretas.";
@@ -60,6 +60,8 @@ ${excludeNote}
 
 ${strictRule}
 ${grammarNote}
+
+PRIORIDADE: Gere frases COERENTES e com SENTIDO. Prefira frases mais longas (4+ palavras) quando possível. Evite combinações curtas sem sentido (ex: "Min ifrån", "Min och"). A frase deve soar natural e ter um significado claro.
 
 Gere:
 1) Uma frase natural em ${targetLanguage} usando APENAS palavras da lista
@@ -373,7 +375,7 @@ function classifyWords(words: { word: string; translation: string }[]): {
   const POSSESSIVES = new Set(["min", "mitt", "mina", "din", "ditt", "dina"]);
   const VERBS = new Set(["heter", "odlar", "mår", "har", "går", "kommer"]);
   const COPULA = new Set(["är", "var", "bli", "blir"]);
-  const ADVERBS = new Set(["hur", "var", "när", "varför", "vad"]);
+  const ADVERBS = new Set(["hur", "var", "när", "varför", "vad", "varifrån", "vart"]);
   const ADJECTIVES = new Set(["bra", "god", "dålig", "stor", "liten", "fin", "vacker"]);
   const DETERMINERS = new Set(["det", "den", "detta", "denna"]);
   const INTERJECTIONS = new Set(["hej", "tack", "nej", "ja"]);
@@ -451,12 +453,16 @@ async function generateFallbackPhrase(
   }
 
   if (adverbs.length > 0 && verbs.length > 0 && subjects.length > 0) {
-    const adv = adverbs.find((a) => a.word.toLowerCase() === "hur");
-    const v = verbs.find((v) => v.word.toLowerCase() === "mår");
-    const subj = subjects.find((s) => s.word.toLowerCase() === "du");
-    if (adv && v && subj) {
-      const sent = `${cap(adv.word)} ${v.word} ${subj.word}`;
-      if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [adv, v, subj] });
+    for (const adv of adverbs) {
+      const al = adv.word.toLowerCase();
+      for (const v of verbs) {
+        for (const subj of subjects) {
+          if ((al === "hur" && v.word.toLowerCase() === "mår") || (al === "varifrån" && v.word.toLowerCase() === "kommer")) {
+            const sent = `${cap(adv.word)} ${v.word} ${subj.word}`;
+            if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [adv, v, subj] });
+          }
+        }
+      }
     }
   }
 
@@ -512,7 +518,11 @@ async function generateFallbackPhrase(
     }
   }
 
-  const shuffled = candidates.sort(() => Math.random() - 0.5);
+  // Preferir frases mais longas (4+ palavras), depois embaralhar
+  const byLength = candidates.sort((a, b) => b.wordsUsed.length - a.wordsUsed.length);
+  const long = byLength.filter((c) => c.wordsUsed.length >= 4);
+  const pool = long.length > 0 ? long : byLength;
+  const shuffled = [...pool].sort(() => Math.random() - 0.5);
   for (const c of shuffled) {
     const sentenceNative = await translateSimple(
       c.sentenceTarget,
