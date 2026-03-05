@@ -78,6 +78,44 @@ describe("validateSwedishGrammar", () => {
     expect(r.valid).toBe(false);
     expect(r.reason).toContain("proibida");
   });
+  it("aceita Mår du? (pergunta sim/não)", () => {
+    expect(validateSwedishGrammar("Mår du", words).valid).toBe(true);
+  });
+  it("rejeita Odlar (verbo sem sujeito)", () => {
+    const r = validateSwedishGrammar("Odlar", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("sujeito");
+  });
+  it("rejeita Heter Anna (verbo sem sujeito)", () => {
+    const r = validateSwedishGrammar("Heter Anna", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("sujeito");
+  });
+  it("rejeita Anna (nome isolado)", () => {
+    const r = validateSwedishGrammar("Anna", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("isolado");
+  });
+  it("rejeita Hur Hej (ADV + INTJ)", () => {
+    const r = validateSwedishGrammar("Hur Hej", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("proibida");
+  });
+  it("rejeita Odlar mår (VERB + VERB)", () => {
+    const r = validateSwedishGrammar("Odlar mår", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("proibida");
+  });
+  it("rejeita Du min (PRON + POSS)", () => {
+    const r = validateSwedishGrammar("Du min", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("proibida");
+  });
+  it("rejeita Hej odlar (INTJ + VERB sem sujeito)", () => {
+    const r = validateSwedishGrammar("Hej odlar", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("proibida");
+  });
   it("rejeita Jag kvinna", () => {
     const r = validateSwedishGrammar("Jag kvinna", words);
     expect(r.valid).toBe(false);

@@ -137,10 +137,11 @@ const SWEDISH_VALID_PATTERNS = [
   ["POSS", "NOUN", "VERB_INTRANS"],
   ["POSS", "NOUN", "VERB_NAME", "PROPN"],
   ["ADV", "VERB_INTRANS", "PRON"],
+  ["VERB_INTRANS", "PRON"],
   ["INTJ"],
 ];
 
-/** Combinações adjacentes proibidas (POSS não pode vir antes de VERB/ADV/INTJ) */
+/** Combinações adjacentes proibidas */
 const SWEDISH_INVALID_PAIRS: [string, string][] = [
   ["POSS", "VERB_INTRANS"],
   ["POSS", "VERB_NAME"],
@@ -148,6 +149,13 @@ const SWEDISH_INVALID_PAIRS: [string, string][] = [
   ["POSS", "INTJ"],
   ["NOUN", "NOUN"],
   ["NOUN", "POSS"],
+  ["ADV", "INTJ"],
+  ["VERB_INTRANS", "VERB_INTRANS"],
+  ["VERB_INTRANS", "VERB_NAME"],
+  ["VERB_NAME", "VERB_INTRANS"],
+  ["PRON", "POSS"],
+  ["INTJ", "VERB_INTRANS"],
+  ["INTJ", "VERB_NAME"],
 ];
 
 function getSwedishCategory(
@@ -178,6 +186,13 @@ export function validateSwedishGrammar(
   const categories = tokens.map((t) => getSwedishCategory(t, userSet, wordToTrans));
   if (categories.some((c) => c === "UNKNOWN")) return { valid: false, reason: "palavra sem categoria definida" };
 
+  if (categories.length === 1) {
+    if (categories[0] === "PROPN") return { valid: false, reason: "nome próprio isolado sem contexto" };
+    if (categories[0] === "VERB_INTRANS" || categories[0] === "VERB_NAME") {
+      return { valid: false, reason: "verbo exige sujeito" };
+    }
+  }
+
   for (let i = 0; i < categories.length - 1; i++) {
     const pair: [string, string] = [categories[i], categories[i + 1]];
     if (SWEDISH_INVALID_PAIRS.some(([a, b]) => a === pair[0] && b === pair[1])) {
@@ -190,6 +205,9 @@ export function validateSwedishGrammar(
   );
   if (matchesPattern) return { valid: true };
 
+  if (categories[0] === "VERB_INTRANS" || categories[0] === "VERB_NAME") {
+    return { valid: false, reason: "verbo exige sujeito (ex: Jag odlar, Mår du?)" };
+  }
   if (categories[0] === "POSS" && categories[1] !== "NOUN") {
     return { valid: false, reason: '"min" precisa de um substantivo após ele' };
   }
@@ -371,6 +389,15 @@ async function generateFallbackPhrase(
     if (adv && v && subj) {
       const sent = `${cap(adv.word)} ${v.word} ${subj.word}`;
       if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [adv, v, subj] });
+    }
+  }
+
+  if (verbs.length > 0 && subjects.length > 0) {
+    const v = verbs.find((v) => v.word.toLowerCase() === "mår");
+    const subj = subjects.find((s) => s.word.toLowerCase() === "du");
+    if (v && subj) {
+      const sent = `${cap(v.word)} ${subj.word}`;
+      if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [v, subj] });
     }
   }
 
