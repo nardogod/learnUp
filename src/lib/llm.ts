@@ -5,8 +5,12 @@ const MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5:0.5b";
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL ?? "llama-3.1-8b-instant";
 
+/** USE_OLLAMA=true força Ollama mesmo com GROQ_API_KEY (útil para dev local) */
+const USE_OLLAMA = process.env.USE_OLLAMA === "true" || process.env.USE_OLLAMA === "1";
+
 /** Indica qual LLM está configurado (para debug) */
 export function getLLMProvider(): "groq" | "ollama" {
+  if (USE_OLLAMA) return "ollama";
   return GROQ_API_KEY ? "groq" : "ollama";
 }
 
@@ -20,7 +24,7 @@ export interface PhraseResult {
 function getGrammarRules(targetLanguage: string): string | null {
   const lang = targetLanguage.toLowerCase();
   if (lang.includes("svensk") || lang.includes("sueco") || lang.includes("swedish") || lang === "sv") {
-    return "heter exige nome próprio (Anna, Erik). min exige substantivo depois (min fru, min vän). bra=adjetivo (Jag är bra). och=conjunção (Jag odlar och du mår). det=determinante (Det är bra). är=verbo de ligação (é/está). varifrån/ifrån/vart=advérbios/preposições (Varifrån kommer du?). NUNCA: min+adjetivo, min+conjunção, min+det, min+verbo, min+advérbio, min+preposição (min ifrån), min+varifrån/vart. Ex válidos: Min fru heter Anna, Varifrån kommer du, Jag är bra. Ex inválidos: Min bra, Min och, Min ifrån, Min Vart.";
+    return "heter exige nome próprio (Anna, Erik). min exige substantivo depois (min fru, min vän). bra=adjetivo (Jag är bra). och=conjunção (Jag odlar och du mår). det=determinante (Det är bra). är=verbo de ligação (é/está). varifrån/ifrån/vart=advérbios/preposições (Varifrån kommer du?). NUNCA: min+adjetivo, min+conjunção, min+det, min+verbo, min+advérbio, min+preposição (min ifrån), min+varifrån/vart. Pode gerar frases de 4 a 20 palavras quando fizerem sentido. Ex válidos: Min fru heter Anna, Varifrån kommer du och hur mår du, Jag är bra och du är bra tack. Ex inválidos: Min bra, Min och, Min ifrån.";
   }
   if (lang.includes("inglês") || lang.includes("english") || lang === "en") {
     return "Verbos exigem sujeito. Possessivos (my, your) exigem substantivo depois. Forme frases gramaticalmente corretas.";
@@ -44,7 +48,7 @@ function buildPrompt(
     options?.excludePhrases && options.excludePhrases.length > 0
       ? `\nNÃO repita NENHUMA destas frases (já enviadas hoje):\n${options.excludePhrases.map((p) => `- ${p}`).join("\n")}\n`
       : "";
-  const forbidNote = `\nNUNCA gere frases contendo: "Min ifrån", "Min och", "Min Vart", "Min varifrån" - são gramaticalmente inválidas.\n`;
+  const forbidNote = `\nNUNCA gere: "Min ifrån", "Min och", "Min Vart", "Min varifrån", "heter och" (heter exige nome próprio logo após: Jag heter Anna, não Jag heter och).\n`;
   const allowedWords = words.map((w) => w.word).join(", ");
   const strictRule = `REGRA CRÍTICA - OBRIGATÓRIO: A frase em ${targetLanguage} deve conter APENAS estas palavras: [${allowedWords}]. NENHUMA outra palavra é permitida.`;
 
@@ -53,7 +57,11 @@ function buildPrompt(
     ? `\nREGRAS GRAMATICAIS (obrigatório): ${grammarRules}\n`
     : "";
 
+  const minWordsTarget = words.length >= 15 ? 6 : words.length >= 8 ? 5 : 4;
+  const lengthRule = `\n⚠️ TAMANHO OBRIGATÓRIO: A frase DEVE ter NO MÍNIMO ${minWordsTarget} palavras. NUNCA gere "Jag mår" ou "Du kommer" — sempre expanda: "Jag mår bra, tack" (4), "Varifrån kommer du och hur mår du?" (7). Com ${words.length} palavras disponíveis, use 6 a 15 palavras quando possível.\n`;
+
   return `Você é professor de ${targetLanguage}. O aluno fala ${nativeLanguage}.
+${lengthRule}
 
 Palavras PERMITIDAS (use SOMENTE estas): [${allowedWords}]
 ${wordsList}
@@ -63,7 +71,9 @@ ${strictRule}
 ${grammarNote}
 ${forbidNote}
 
-VARIEDADE: Não repita frases da lista acima. Alterne estruturas: Jag/Du+verbo, Varifrån/Hur+verbo+du, Det är bra, Min vän heter X. Quando houver "och" (e), bra (bem), tack (obrigado), tente frases como "Jag mår bra, tack" ou "Varifrån kommer du och hur mår du?". Prefira 4+ palavras.
+VARIEDADE: Não repita frases da lista acima. Alterne estruturas: Jag/Du+verbo, Varifrån/Hur+verbo+du, Det är bra, Min vän heter X. Use "och" para conectar ideias: "Jag mår bra och du mår bra, tack". Combine perguntas: "Varifrån kommer du och hur mår du?". 
+
+COMPLEXIDADE: Gere frases LONGAS (6 a 20 palavras). Exemplos bons: "Jag mår bra, tack" (4), "Varifrån kommer du och hur mår du?" (7), "Min vän heter Anna och hon odlar" (6), "Jag är bra och du är bra, tack" (8). Evite frases de 2–3 palavras.
 
 Gere:
 1) Uma frase natural em ${targetLanguage} usando APENAS palavras da lista
@@ -249,6 +259,7 @@ const SWEDISH_FORBIDDEN_SUBSTRINGS = [
   "din varifrån",
   "din vart",
   "din och",
+  "heter och",
 ];
 
 /** Valida se a frase em sueco segue a gramática (padrões A-E) */
@@ -338,6 +349,13 @@ export function validateSwedishGrammar(
   if (categories[0] === "NOUN" && categories[1] === "POSS") {
     return { valid: false, reason: "possessivo deve vir antes do substantivo" };
   }
+
+  // Frases longas (8+ palavras): validação relaxada — padrões fixos não cobrem todas as estruturas
+  if (categories.length >= 8) {
+    const validStart = ["PRON", "POSS", "ADV", "DET", "VERB_COPULA"];
+    if (validStart.includes(categories[0])) return { valid: true };
+  }
+
   return { valid: false, reason: "estrutura gramatical inválida" };
 }
 
@@ -369,7 +387,7 @@ export async function generatePhrase(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const prompt = buildPrompt(targetLanguage, nativeLanguage, words, currentOptions);
-    const result = GROQ_API_KEY ? await generateWithGroq(prompt) : await generateWithOllama(prompt);
+    const result = getLLMProvider() === "groq" ? await generateWithGroq(prompt) : await generateWithOllama(prompt);
     if (!result) {
       console.warn(`[generatePhrase] attempt ${attempt}: API retornou null (${getLLMProvider()})`);
       continue;
@@ -386,8 +404,9 @@ export async function generatePhrase(
     }
 
     const wordCount = extractWordsFromSentence(result.sentenceTarget).length;
-    if (words.length >= 15 && wordCount <= 2) {
-      console.warn(`[generatePhrase] attempt ${attempt}: frase muito curta (${wordCount} palavras), preferir 4+`);
+    const minWords = words.length >= 15 ? 6 : words.length >= 8 ? 5 : 4;
+    if (wordCount < minWords) {
+      console.warn(`[generatePhrase] attempt ${attempt}: frase curta (${wordCount} palavras), mínimo ${minWords} com ${words.length} no vocabulário`);
       currentOptions = {
         ...currentOptions,
         excludePhrases: [...(currentOptions?.excludePhrases ?? []), result.sentenceTarget],
@@ -443,6 +462,87 @@ export async function generatePhrase(
       options?.excludePhrases ?? []
     );
     if (lastResort) return lastResort;
+  }
+
+  // Último recurso: frase simples sem validação gramatical (evita "tente novamente")
+  const ultraFallback = generateUltraFallback(targetLanguage, nativeLanguage, words, options?.excludePhrases ?? []);
+  if (ultraFallback) {
+    console.warn("[generatePhrase] usando ultra-fallback (sem validação gramatical)");
+    return ultraFallback;
+  }
+
+  console.error("[generatePhrase] TODOS os fallbacks falharam - retornando null");
+  return null;
+}
+
+/** Ultra-fallback: frases de 2–4 palavras sem validação (evita "tente novamente") */
+function generateUltraFallback(
+  _targetLanguage: string,
+  _nativeLanguage: string,
+  words: { word: string; translation: string }[],
+  excludePhrases: string[]
+): PhraseResult | null {
+  if (words.length < 2) return null;
+  const excludeSet = new Set(excludePhrases.map((p) => p.trim().toLowerCase()));
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+  const { subjects, verbs, adjectives, possessives, nouns, properNames, adverbs } = classifyWords(words);
+
+  const tryPhrase = (sent: string, used: { word: string; translation: string }[]): PhraseResult | null => {
+    if (excludeSet.has(sent.trim().toLowerCase())) return null;
+    return {
+      sentenceTarget: sent,
+      sentenceNative: used.map((w) => w.translation).join(" "),
+      wordsUsed: used.map((w) => w.word),
+    };
+  };
+
+  const shuffled = [...words].sort(() => Math.random() - 0.5);
+
+  if (subjects.length > 0 && verbs.length > 0 && adjectives.length > 0) {
+    const subj = subjects[0];
+    const v = verbs.find((x) => x.word.toLowerCase() === "mår") ?? verbs[0];
+    const adj = adjectives[0];
+    const r = tryPhrase(`${cap(subj.word)} ${v.word} ${adj.word}`, [subj, v, adj]);
+    if (r) return r;
+  }
+
+  if (possessives.length > 0 && nouns.length > 0 && verbs.length > 0) {
+    const p = possessives[0];
+    const n = nouns[0];
+    const v = verbs[0];
+    const r = tryPhrase(`${cap(p.word)} ${n.word} ${v.word}`, [p, n, v]);
+    if (r) return r;
+  }
+
+  if (adverbs.length > 0 && verbs.length > 0 && subjects.length > 0) {
+    const adv = adverbs[0];
+    const v = verbs[0];
+    const subj = subjects[0];
+    const r = tryPhrase(`${cap(adv.word)} ${v.word} ${subj.word}`, [adv, v, subj]);
+    if (r) return r;
+  }
+
+  if (subjects.length > 0 && verbs.length > 0) {
+    const subj = subjects[0];
+    const v = verbs[0];
+    const r = tryPhrase(`${cap(subj.word)} ${v.word}`, [subj, v]);
+    if (r) return r;
+  }
+
+  for (let i = 0; i < shuffled.length; i++) {
+    for (let j = 0; j < shuffled.length; j++) {
+      if (i === j) continue;
+      const w1 = shuffled[i];
+      const w2 = shuffled[j];
+      const sent = `${cap(w1.word)} ${w2.word.toLowerCase()}`;
+      if (excludeSet.has(sent.toLowerCase())) continue;
+      return {
+        sentenceTarget: sent,
+        sentenceNative: `${w1.translation} ${w2.translation}`,
+        wordsUsed: [w1.word, w2.word],
+      };
+    }
   }
   return null;
 }
@@ -658,6 +758,37 @@ async function generateFallbackPhrase(
     }
   }
 
+  if (subjects.length > 0 && verbs.length > 0 && adjectives.length > 0) {
+    for (const subj of subjects) {
+      for (const v of verbs) {
+        if (v.word.toLowerCase() === "mår") {
+          for (const adj of adjectives) {
+            const sent = `${cap(subj.word)} ${v.word} ${adj.word}`;
+            if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [subj, v, adj] });
+          }
+        }
+      }
+    }
+  }
+
+  if (subjects.length > 0 && verbs.length > 0 && adjectives.length > 0) {
+    const intj = words.find((w) => ["tack", "hej"].includes(w.word.toLowerCase()));
+    if (intj) {
+      for (const subj of subjects) {
+        for (const v of verbs) {
+          if (v.word.toLowerCase() === "mår") {
+            for (const adj of adjectives) {
+              if (adj.word.toLowerCase() === "bra") {
+                const sent = `${cap(subj.word)} ${v.word} ${adj.word}, ${intj.word}`;
+                if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [subj, v, adj, intj] });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   if (subjects.length > 0 && copula.length > 0 && adjectives.length > 0) {
     const subj = subjects[0];
     const cop = copula[0];
@@ -683,6 +814,41 @@ async function generateFallbackPhrase(
     if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [p, n, cop, adj] });
   }
 
+  if (subjects.length >= 2 && verbs.length >= 2) {
+    const conj = words.find((w) => w.word.toLowerCase() === "och");
+    if (conj) {
+      for (const s1 of subjects) {
+        for (const v1 of verbs) {
+          if (v1.word.toLowerCase() === "heter") continue;
+          for (const s2 of subjects) {
+            if (s1.word.toLowerCase() === s2.word.toLowerCase()) continue;
+            for (const v2 of verbs) {
+              if (v2.word.toLowerCase() === "heter") continue;
+              if (v1.word.toLowerCase() === v2.word.toLowerCase()) continue;
+              const sent = `${cap(s1.word)} ${v1.word} ${conj.word} ${s2.word} ${v2.word}`;
+              if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [s1, v1, conj, s2, v2] });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (adverbs.length > 0 && verbs.length > 0 && subjects.length > 0) {
+    const conj = words.find((w) => w.word.toLowerCase() === "och");
+    if (conj) {
+      const adv1 = adverbs.find((a) => a.word.toLowerCase() === "varifrån");
+      const adv2 = adverbs.find((a) => a.word.toLowerCase() === "hur");
+      const v1 = verbs.find((v) => v.word.toLowerCase() === "kommer");
+      const v2 = verbs.find((v) => v.word.toLowerCase() === "mår");
+      const subj = subjects.find((s) => s.word.toLowerCase() === "du");
+      if (adv1 && adv2 && v1 && v2 && subj) {
+        const sent = `${cap(adv1.word)} ${v1.word} ${subj.word} ${conj.word} ${adv2.word} ${v2.word} ${subj.word}`;
+        if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [adv1, v1, subj, conj, adv2, v2] });
+      }
+    }
+  }
+
   if (possessives.length > 0 && nouns.length > 0 && verbs.length > 0) {
     for (const p of possessives) {
       for (const n of nouns) {
@@ -703,17 +869,22 @@ async function generateFallbackPhrase(
     }
   }
 
-  // Preferir frases que NÃO começam com Min (variedade), depois por tamanho, depois embaralhar
+  // Preferir frases longas (4+ quando vocabulário permite) e que NÃO começam com Min
+  const minLenForPool = words.length >= 8 ? 4 : 3;
   const startsWithMin = (c: { sentenceTarget: string }) =>
     c.sentenceTarget.toLowerCase().trimStart().startsWith("min ");
   const nonMin = candidates.filter((c) => !startsWithMin(c));
-  const minPhrases = candidates.filter(startsWithMin);
+  const minPhrases = candidates.filter((c) => startsWithMin(c));
   const preferred = nonMin.length > 0 ? nonMin : minPhrases;
   const byLength = preferred.sort((a, b) => b.wordsUsed.length - a.wordsUsed.length);
-  const long = byLength.filter((c) => c.wordsUsed.length >= 3);
+  const long = byLength.filter((c) => c.wordsUsed.length >= minLenForPool);
   const pool = long.length > 0 ? long : byLength;
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
   for (const c of shuffled) {
+    if (isSwedish) {
+      const grammar = validateSwedishGrammar(c.sentenceTarget, words);
+      if (!grammar.valid) continue;
+    }
     const sentenceNative = await translateSimple(
       c.sentenceTarget,
       targetLanguage,
@@ -954,7 +1125,7 @@ Retorne APENAS JSON válido, sem markdown:
 }
 
 export async function checkOllamaHealth(): Promise<boolean> {
-  if (GROQ_API_KEY) return true;
+  if (getLLMProvider() === "groq") return true;
   try {
     const res = await fetch(`${OLLAMA_BASE}/api/tags`, { method: "GET" });
     return res.ok;

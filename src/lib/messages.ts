@@ -30,7 +30,8 @@ const messages: Record<Language, Record<string, string>> = {
     planFree: "📋 Plano Free\n• 100 palavras\n• 3 frases automáticas/dia\n• 10 /frase por dia\n\nFaça upgrade para premium!",
     planPremium: "📋 Plano Premium\n• Palavras ilimitadas\n• Frases automáticas: {count}/dia\n• /frase ilimitado",
     planPremiumUnlimited: "📋 Plano Premium\n• Palavras ilimitadas\n• Frases automáticas: ilimitadas\n• /frase ilimitado",
-    tryAgain: "Tente novamente em alguns minutos.",
+    tryAgain:
+      "O serviço de geração de frases está temporariamente indisponível ou sobrecarregado. Tente novamente em 1–2 minutos. Enquanto isso, use /palavras para revisar seu vocabulário.",
     fraseLimitReached: "Você atingiu o limite de 10 frases por dia no plano free. Use /plan para ver opções.",
     fewWordsForVariety: "Ainda há poucas palavras para frases novas sem repetir. Aprenda mais palavras com /addword!",
     phrasesLeft: "📊 {left} frases restantes hoje • {total} palavras",
@@ -67,7 +68,8 @@ const messages: Record<Language, Record<string, string>> = {
     planFree: "📋 Free Plan\n• 100 words\n• 3 automatic phrases/day\n• 10 /frase per day\n\nUpgrade to premium!",
     planPremium: "📋 Premium Plan\n• Unlimited words\n• Automatic phrases: {count}/day\n• /frase unlimited",
     planPremiumUnlimited: "📋 Premium Plan\n• Unlimited words\n• Automatic phrases: unlimited\n• /frase unlimited",
-    tryAgain: "Try again in a few minutes.",
+    tryAgain:
+      "The phrase generation service is temporarily unavailable or overloaded. Try again in 1–2 minutes. Meanwhile, use /palavras to review your vocabulary.",
     fraseLimitReached: "You've reached the 10 phrases per day limit on the free plan. Use /plan for options.",
     fewWordsForVariety: "Not enough words for new phrases without repeating. Learn more words with /addword!",
     phrasesLeft: "📊 {left} phrases left today • {total} words",
@@ -104,7 +106,8 @@ const messages: Record<Language, Record<string, string>> = {
     planFree: "📋 Free-plan\n• 100 ord\n• 3 automatiska fraser/dag\n• 10 /frase per dag\n\nUppgradera till premium!",
     planPremium: "📋 Premium-plan\n• Obegränsade ord\n• Automatiska fraser: {count}/dag\n• /frase obegränsat",
     planPremiumUnlimited: "📋 Premium-plan\n• Obegränsade ord\n• Automatiska fraser: obegränsat\n• /frase obegränsat",
-    tryAgain: "Försök igen om några minuter.",
+    tryAgain:
+      "Frasgenereringstjänsten är tillfälligt otillgänglig eller överbelastad. Försök igen om 1–2 minuter. Använd /palavras för att granska ditt ordförråd under tiden.",
     fraseLimitReached: "Du har nått gränsen på 10 fraser per dag på free-planen. Använd /plan för alternativ.",
     fewWordsForVariety: "Inte tillräckligt med ord för nya fraser utan att upprepa. Lär dig fler ord med /addword!",
     phrasesLeft: "📊 {left} fraser kvar idag • {total} ord",

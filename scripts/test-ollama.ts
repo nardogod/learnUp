@@ -4,11 +4,11 @@
  * Ollama: OLLAMA_BASE_URL=... npm run test:ollama
  */
 import "dotenv/config";
-import { generatePhrase } from "../src/lib/llm";
+import { generatePhrase, getLLMProvider } from "../src/lib/llm";
 
 async function test() {
-  const useGroq = !!process.env.GROQ_API_KEY;
-  console.log(`\n🔍 Testando ${useGroq ? "Groq" : "Ollama"}...\n`);
+  const provider = getLLMProvider();
+  console.log(`\n🔍 Testando ${provider}...\n`);
 
   const words = [
     { word: "jag", translation: "eu" },

@@ -13,6 +13,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   if (!validateWebhookSecret(request)) {
+    console.warn("[webhook] Rejeitado: secret inválido");
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -26,32 +27,42 @@ export async function POST(request: NextRequest) {
   const msg = (body as { message?: { from?: { id: number }; chat?: { id: number }; text?: string } })
     ?.message;
   if (!msg?.from?.id || !msg?.chat?.id || !msg.text) {
+    if (msg) console.log("[webhook] Ignorado: sem text (pode ser foto/sticker)");
     return NextResponse.json({ ok: true });
   }
 
   const chatId = String(msg.chat.id);
   const telegramId = String(msg.from.id);
   const text = msg.text.trim();
+  console.log(`[webhook] Mensagem de ${telegramId}: "${text.slice(0, 50)}${text.length > 50 ? "..." : ""}"`);
 
-  const user = await prisma.user.findUnique({
-    where: { telegramId },
-    include: { words: true },
-  });
+  // Responde imediatamente ao Telegram (evita timeout de 60s com Ollama lento)
+  void (async () => {
+    try {
+      const user = await prisma.user.findUnique({
+        where: { telegramId },
+        include: { words: true },
+      });
 
-  if (!user) {
-    await sendMessage(chatId, getMessage("inglês", "notRegistered"));
-    return NextResponse.json({ ok: true });
-  }
+      if (!user) {
+        await sendMessage(chatId, getMessage("inglês", "notRegistered"));
+        return;
+      }
 
-  // Boas-vindas na primeira conversa
-  if (!user.welcomedAt) {
-    await sendMessage(chatId, getMessage(user.nativeLanguage, "welcome"));
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { welcomedAt: new Date() },
-    });
-  }
+      if (!user.welcomedAt) {
+        await sendMessage(chatId, getMessage(user.nativeLanguage, "welcome"));
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { welcomedAt: new Date() },
+        });
+      }
 
-  await handleMessage(user, text, chatId);
+      await handleMessage(user, text, chatId);
+    } catch (e) {
+      console.error("[webhook] Erro ao processar:", e);
+      await sendMessage(chatId, getMessage("português", "tryAgain"));
+    }
+  })();
+
   return NextResponse.json({ ok: true });
 }

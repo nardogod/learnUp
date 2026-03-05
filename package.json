@@ -10,6 +10,8 @@
     "lint": "eslint",
     "register-user": "tsx scripts/register-user.ts",
     "set-commands": "tsx scripts/set-bot-commands.ts",
+    "webhook:local": "tsx scripts/set-webhook-local.ts",
+    "webhook:check": "tsx scripts/check-webhook.ts",
     "admin": "tsx scripts/admin.ts",
     "test:ollama": "tsx scripts/test-ollama.ts",
     "docker:build": "docker build -t learnup-ollama ./ollama-render",
