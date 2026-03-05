@@ -83,6 +83,7 @@ export async function setMyCommands(): Promise<boolean> {
     { command: "addphrase", description: "Extrair palavras de uma frase" },
     { command: "frase", description: "Gerar frase com suas palavras" },
     { command: "palavras", description: "Ver suas palavras" },
+    { command: "deduplicate", description: "Remover duplicatas" },
     { command: "editword", description: "Trocar significado de palavra" },
     { command: "ranking", description: "Top 3 usuários" },
     { command: "plan", description: "Ver plano e limites" },

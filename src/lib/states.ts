@@ -4,6 +4,7 @@ import { getMessage } from "./messages";
 import { sendMessage } from "./telegram";
 import { canAddWord, canUseManualFrase, getRemainingFraseCount } from "./limits";
 import { generatePhrase, extractWordsFromPhrase, getLLMProvider } from "./llm";
+import { findDuplicateWord, deduplicateUserWords } from "./words";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -49,14 +50,21 @@ function isFraseTrigger(text: string): boolean {
 }
 
 function isCancelTrigger(text: string): boolean {
-  return text.trim().toLowerCase() === "/cancel";
+  const t = text.trim();
+  return t === "/cancel" || t.toLowerCase() === "/cancel" || t.toLowerCase().startsWith("/cancel@");
+}
+
+/** Comando exato (aceita /cmd ou /cmd@BotName) */
+function isCommand(text: string, cmd: string): boolean {
+  const t = text.trim();
+  return t === cmd || t.startsWith(cmd + "@");
 }
 
 export async function handleMessage(user: User, text: string, chatId: string): Promise<void> {
   const state = user.conversationState ?? "idle";
 
   // /start - cancela fluxo e mostra boas-vindas
-  if (text.trim() === "/start") {
+  if (isCommand(text, "/start")) {
     await prisma.user.update({
       where: { id: user.id },
       data: { conversationState: "idle", tempWord: null },
@@ -75,8 +83,20 @@ export async function handleMessage(user: User, text: string, chatId: string): P
     return;
   }
 
+  // /deduplicate - remove duplicatas do vocabulário (palavras)
+  if (isCommand(text, "/deduplicate")) {
+    const before = await prisma.word.count({ where: { userId: user.id } });
+    const removed = await deduplicateUserWords(user.id);
+    const after = await prisma.word.count({ where: { userId: user.id } });
+    await sendMessage(
+      chatId,
+      getMessage(user.nativeLanguage, "deduplicateDone", { removed: String(removed), total: String(after) })
+    );
+    return;
+  }
+
   // /status - debug: qual LLM está ativo
-  if (text.trim() === "/status") {
+  if (isCommand(text, "/status")) {
     const provider = getLLMProvider();
     const msg = provider === "groq" ? "✅ LLM: Groq" : "⚠️ LLM: Ollama (Groq não configurado)";
     await sendMessage(chatId, msg);
@@ -84,7 +104,7 @@ export async function handleMessage(user: User, text: string, chatId: string): P
   }
 
   // /plan
-  if (text.trim() === "/plan") {
+  if (isCommand(text, "/plan")) {
     if (user.plan === "premium") {
       const msg =
         user.phrasesPerDay == null
@@ -98,7 +118,7 @@ export async function handleMessage(user: User, text: string, chatId: string): P
   }
 
   // /palavras
-  if (text.trim() === "/palavras") {
+  if (isCommand(text, "/palavras")) {
     const [words, totalCount] = await Promise.all([
       prisma.word.findMany({
         where: { userId: user.id },
@@ -118,7 +138,7 @@ export async function handleMessage(user: User, text: string, chatId: string): P
   }
 
   // /ranking
-  if (text.trim() === "/ranking") {
+  if (isCommand(text, "/ranking")) {
     const top = await prisma.user.findMany({
       where: { words: { some: {} } },
       include: { _count: { select: { words: true } } },
@@ -265,6 +285,8 @@ export async function handleMessage(user: User, text: string, chatId: string): P
     let saved = 0;
     for (const w of extracted) {
       if (!canAddWord(user, wordCount)) break;
+      const dup = await findDuplicateWord(user.id, w.word.trim());
+      if (dup.exists) continue;
       await prisma.word.create({
         data: {
           userId: user.id,
@@ -420,6 +442,18 @@ export async function handleMessage(user: User, text: string, chatId: string): P
     const skipLabels = ["pular", "skip", "hoppa över", "hoppa", "pula", "-"];
     const isSkip = skipLabels.includes(tip.toLowerCase());
     const description = !isSkip && tip && !tip.startsWith("/") ? tip : null;
+
+    const dup = await findDuplicateWord(user.id, word);
+    if (dup.exists) {
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { conversationState: "idle", tempWord: null },
+      });
+      await sendMessage(chatId, getMessage(user.nativeLanguage, "wordDuplicate", { word: dup.existing.word }), {
+        reply_markup: { remove_keyboard: true },
+      });
+      return;
+    }
 
     await prisma.word.create({
       data: {

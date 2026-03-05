@@ -11,6 +11,7 @@ const mockPrisma = {
     findMany: vi.fn(),
     count: vi.fn(),
     create: vi.fn(),
+    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
   },
   phraseSent: {
     findMany: vi.fn().mockResolvedValue([]),
@@ -102,5 +103,34 @@ describe("handleMessage - state flow", () => {
         data: { conversationState: "idle", tempWord: null },
       })
     );
+  });
+
+  it("runs /deduplicate and sends feedback", async () => {
+    const { handleMessage } = await import("./states");
+    const { sendMessage } = await import("./telegram");
+
+    mockPrisma.word.findMany.mockResolvedValue([
+      { id: "w1", word: "Jag", translation: "Eu", createdAt: new Date("2024-01-01") },
+      { id: "w2", word: "jag", translation: "eu", createdAt: new Date("2024-01-02") },
+    ]);
+    mockPrisma.word.count.mockResolvedValue(1);
+    mockPrisma.word.deleteMany.mockResolvedValue({ count: 1 });
+
+    await handleMessage(mockUser, "/deduplicate", "chat1");
+
+    expect(sendMessage).toHaveBeenCalledWith("chat1", expect.stringContaining("Limpeza concluída"));
+    expect(sendMessage).toHaveBeenCalledWith("chat1", expect.stringMatching(/1.*duplicat|1.*palavra/));
+  });
+
+  it("accepts /deduplicate@BotName from menu", async () => {
+    const { handleMessage } = await import("./states");
+    const { sendMessage } = await import("./telegram");
+
+    mockPrisma.word.findMany.mockResolvedValue([]);
+    mockPrisma.word.count.mockResolvedValue(0);
+
+    await handleMessage(mockUser, "/deduplicate@LearnUPBot", "chat1");
+
+    expect(sendMessage).toHaveBeenCalledWith("chat1", expect.stringContaining("Limpeza concluída"));
   });
 });
