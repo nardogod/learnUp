@@ -15,6 +15,20 @@ export interface PhraseResult {
   tip?: string;
 }
 
+function getGrammarRules(targetLanguage: string): string | null {
+  const lang = targetLanguage.toLowerCase();
+  if (lang.includes("svensk") || lang.includes("sueco") || lang === "sv") {
+    return "heter e odlar exigem sujeito explícito (jag ou min+substantivo). min exige substantivo depois (min vän, min fru). Forme frases com sujeito+verbo ou sujeito+verbo+complemento. Ex: Jag heter vän, Min fru odlar.";
+  }
+  if (lang.includes("inglês") || lang.includes("english") || lang === "en") {
+    return "Verbos exigem sujeito. Possessivos (my, your) exigem substantivo depois. Forme frases gramaticalmente corretas.";
+  }
+  if (lang.includes("português") || lang.includes("portuguese") || lang === "pt") {
+    return "Verbos exigem sujeito. Possessivos (meu, minha) exigem substantivo depois. Forme frases gramaticalmente corretas.";
+  }
+  return null;
+}
+
 function buildPrompt(
   targetLanguage: string,
   nativeLanguage: string,
@@ -29,7 +43,12 @@ function buildPrompt(
       ? `\nNÃO repita estas frases (já enviadas 2x hoje):\n${options.excludePhrases.map((p) => `- ${p}`).join("\n")}\n`
       : "";
   const allowedWords = words.map((w) => w.word).join(", ");
-  const strictRule = `REGRA CRÍTICA - OBRIGATÓRIO: A frase em ${targetLanguage} deve conter APENAS estas palavras: [${allowedWords}]. NENHUMA outra palavra é permitida. Se precisar, faça frases curtas (ex: 2-3 palavras).`;
+  const strictRule = `REGRA CRÍTICA - OBRIGATÓRIO: A frase em ${targetLanguage} deve conter APENAS estas palavras: [${allowedWords}]. NENHUMA outra palavra é permitida.`;
+
+  const grammarRules = getGrammarRules(targetLanguage);
+  const grammarNote = grammarRules
+    ? `\nREGRAS GRAMATICAIS (obrigatório): ${grammarRules}\n`
+    : "";
 
   return `Você é professor de ${targetLanguage}. O aluno fala ${nativeLanguage}.
 
@@ -38,6 +57,7 @@ ${wordsList}
 ${excludeNote}
 
 ${strictRule}
+${grammarNote}
 
 Gere:
 1) Uma frase natural em ${targetLanguage} usando APENAS palavras da lista
@@ -118,36 +138,123 @@ export async function generatePhrase(
   return generateFallbackPhrase(targetLanguage, nativeLanguage, words, options?.excludePhrases ?? []);
 }
 
-/** Fallback: gera frase simples (2 palavras) quando o LLM falha */
+/** Classifica palavras por papel gramatical (sueco) */
+function classifyWords(words: { word: string; translation: string }[]): {
+  subjects: { word: string; translation: string }[];
+  possessives: { word: string; translation: string }[];
+  verbs: { word: string; translation: string }[];
+  nouns: { word: string; translation: string }[];
+} {
+  const SUBJECTS = new Set(["jag", "du", "han", "hon", "vi", "de"]);
+  const POSSESSIVES = new Set(["min", "mitt", "mina", "din", "ditt", "dina"]);
+  const VERBS = new Set(["heter", "odlar", "är", "har", "går", "kommer"]);
+  const subjects: { word: string; translation: string }[] = [];
+  const possessives: { word: string; translation: string }[] = [];
+  const verbs: { word: string; translation: string }[] = [];
+  const nouns: { word: string; translation: string }[] = [];
+  for (const w of words) {
+    const lower = w.word.toLowerCase();
+    if (SUBJECTS.has(lower)) subjects.push(w);
+    else if (POSSESSIVES.has(lower)) possessives.push(w);
+    else if (VERBS.has(lower)) verbs.push(w);
+    else nouns.push(w);
+  }
+  return { subjects, possessives, verbs, nouns };
+}
+
+/** Fallback: usa templates gramaticais quando o LLM falha */
 async function generateFallbackPhrase(
   targetLanguage: string,
   nativeLanguage: string,
   words: { word: string; translation: string }[],
   excludePhrases: string[]
 ): Promise<PhraseResult | null> {
-  if (words.length < 2) return null;
+  const lang = targetLanguage.toLowerCase();
+  const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang === "sv";
+  if (!isSwedish || words.length < 2) {
+    return generateRandomPairFallback(targetLanguage, nativeLanguage, words, excludePhrases);
+  }
 
+  const { subjects, possessives, verbs, nouns } = classifyWords(words);
+  const excludeSet = new Set(excludePhrases.map((p) => p.toLowerCase()));
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+
+  const candidates: { sentenceTarget: string; wordsUsed: { word: string; translation: string }[] }[] = [];
+
+  if (subjects.length > 0 && verbs.length > 0) {
+    const subj = subjects[0];
+    for (const v of verbs) {
+      if (v.word.toLowerCase() === "heter" && nouns.length > 0) {
+        for (const n of nouns) {
+          const sent = `${cap(subj.word)} ${v.word} ${n.word}`;
+          if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [subj, v, n] });
+        }
+      } else if (v.word.toLowerCase() === "odlar") {
+        const sent = `${cap(subj.word)} ${v.word}`;
+        if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [subj, v] });
+      }
+    }
+  }
+
+  if (possessives.length > 0 && nouns.length > 0 && verbs.length > 0) {
+    for (const p of possessives) {
+      for (const n of nouns) {
+        for (const v of verbs) {
+          if (v.word.toLowerCase() === "odlar") {
+            const sent = `${cap(p.word)} ${n.word} ${v.word}`;
+            if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [p, n, v] });
+          } else if (v.word.toLowerCase() === "heter" && nouns.length > 1) {
+            for (const n2 of nouns) {
+              if (n2.word !== n.word) {
+                const sent = `${cap(p.word)} ${n.word} ${v.word} ${n2.word}`;
+                if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [p, n, v, n2] });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  const shuffled = candidates.sort(() => Math.random() - 0.5);
+  for (const c of shuffled) {
+    const sentenceNative = await translateSimple(
+      c.sentenceTarget,
+      targetLanguage,
+      nativeLanguage,
+      c.wordsUsed
+    );
+    if (sentenceNative) {
+      return {
+        sentenceTarget: c.sentenceTarget,
+        sentenceNative,
+        wordsUsed: c.wordsUsed.map((w) => w.word),
+      };
+    }
+  }
+
+  return generateRandomPairFallback(targetLanguage, nativeLanguage, words, excludePhrases);
+}
+
+/** Fallback secundário: pares aleatórios (para idiomas sem templates) */
+async function generateRandomPairFallback(
+  targetLanguage: string,
+  nativeLanguage: string,
+  words: { word: string; translation: string }[],
+  excludePhrases: string[]
+): Promise<PhraseResult | null> {
+  if (words.length < 2) return null;
   const shuffled = [...words].sort(() => Math.random() - 0.5);
   for (let i = 0; i < shuffled.length; i++) {
     for (let j = 0; j < shuffled.length; j++) {
       if (i === j) continue;
-      const w1 = shuffled[i].word;
-      const w2 = shuffled[j].word;
-      const sentenceTarget = w1.charAt(0).toUpperCase() + w1.slice(1).toLowerCase() + " " + w2.toLowerCase();
+      const w1 = shuffled[i];
+      const w2 = shuffled[j];
+      const sentenceTarget = w1.word.charAt(0).toUpperCase() + w1.word.slice(1).toLowerCase() + " " + w2.word.toLowerCase();
       if (excludePhrases.some((p) => p.toLowerCase() === sentenceTarget.toLowerCase())) continue;
-
-      const sentenceNative = await translateSimple(
-        sentenceTarget,
-        targetLanguage,
-        nativeLanguage,
-        [shuffled[i], shuffled[j]]
-      );
+      const sentenceNative = await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [w1, w2]);
       if (sentenceNative) {
-        return {
-          sentenceTarget,
-          sentenceNative,
-          wordsUsed: [w1, w2],
-        };
+        return { sentenceTarget, sentenceNative, wordsUsed: [w1.word, w2.word] };
       }
     }
   }
