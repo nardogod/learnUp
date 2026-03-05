@@ -3,6 +3,11 @@ const MODEL = process.env.OLLAMA_MODEL ?? "qwen2.5:0.5b";
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const GROQ_MODEL = process.env.GROQ_MODEL ?? "llama-3.1-8b-instant";
 
+/** Indica qual LLM está configurado (para debug) */
+export function getLLMProvider(): "groq" | "ollama" {
+  return GROQ_API_KEY ? "groq" : "ollama";
+}
+
 export interface PhraseResult {
   sentenceTarget: string;
   sentenceNative: string;
@@ -95,17 +100,21 @@ export async function generatePhrase(
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     const prompt = buildPrompt(targetLanguage, nativeLanguage, words, currentOptions);
     const result = GROQ_API_KEY ? await generateWithGroq(prompt) : await generateWithOllama(prompt);
-    if (!result) continue;
+    if (!result) {
+      console.warn(`[generatePhrase] attempt ${attempt}: API retornou null (${getLLMProvider()})`);
+      continue;
+    }
 
-    const { valid } = validatePhraseUsesOnlyVocabulary(result.sentenceTarget, words);
+    const { valid, unknownWords } = validatePhraseUsesOnlyVocabulary(result.sentenceTarget, words);
     if (valid) return result;
 
-    // LLM usou palavras não cadastradas - excluir frase e retentar
+    console.warn(`[generatePhrase] attempt ${attempt}: palavras inválidas: ${unknownWords.join(", ")}`);
     currentOptions = {
       ...currentOptions,
       excludePhrases: [...(currentOptions?.excludePhrases ?? []), result.sentenceTarget],
     };
   }
+  console.warn(`[generatePhrase] falhou após ${maxAttempts} tentativas (${getLLMProvider()})`);
   return null;
 }
 

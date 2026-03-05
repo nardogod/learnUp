@@ -3,7 +3,7 @@ import { prisma } from "./db";
 import { getMessage } from "./messages";
 import { sendMessage } from "./telegram";
 import { canAddWord, canUseManualFrase, getRemainingFraseCount } from "./limits";
-import { generatePhrase, extractWordsFromPhrase } from "./llm";
+import { generatePhrase, extractWordsFromPhrase, getLLMProvider } from "./llm";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -72,6 +72,14 @@ export async function handleMessage(user: User, text: string, chatId: string): P
       data: { conversationState: "idle", tempWord: null },
     });
     await sendMessage(chatId, getMessage(user.nativeLanguage, "cancel"));
+    return;
+  }
+
+  // /status - debug: qual LLM está ativo
+  if (text.trim() === "/status") {
+    const provider = getLLMProvider();
+    const msg = provider === "groq" ? "✅ LLM: Groq" : "⚠️ LLM: Ollama (Groq não configurado)";
+    await sendMessage(chatId, msg);
     return;
   }
 
