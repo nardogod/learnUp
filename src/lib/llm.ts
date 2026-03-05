@@ -63,7 +63,7 @@ ${strictRule}
 ${grammarNote}
 ${forbidNote}
 
-PRIORIDADE: Gere frases COERENTES e com SENTIDO. OBRIGATÓRIO: use 4+ palavras quando houver palavras suficientes. Evite frases de 2 palavras (ex: "Kommer du") se puder formar frases mais longas como "Varifrån kommer du" ou "Min vän heter Anna". Varie as estruturas - não repita o mesmo padrão.
+VARIEDADE OBRIGATÓRIA: NÃO comece sempre com "Min". Alterne entre: Jag/Du+verbo (Jag heter Anna, Du kommer), Varifrån/Hur+verbo (Varifrån kommer du?), Det+är+adj (Det är bra), Min+substantivo (Min vän heter Maria) - use às vezes. Use 4+ palavras quando possível.
 
 Gere:
 1) Uma frase natural em ${targetLanguage} usando APENAS palavras da lista
@@ -357,7 +357,7 @@ export async function generatePhrase(
     }
 
     const wordCount = extractWordsFromSentence(result.sentenceTarget).length;
-    if (words.length >= 8 && wordCount <= 2) {
+    if (words.length >= 15 && wordCount <= 2) {
       console.warn(`[generatePhrase] attempt ${attempt}: frase muito curta (${wordCount} palavras), preferir 4+`);
       currentOptions = {
         ...currentOptions,
@@ -479,16 +479,28 @@ async function generateFallbackPhrase(
   }
 
   if (subjects.length > 0 && verbs.length > 0) {
-    const subj = subjects[0];
-    for (const v of verbs) {
-      if (v.word.toLowerCase() === "heter" && properNames.length > 0) {
-        for (const pn of properNames) {
-          const sent = `${cap(subj.word)} ${v.word} ${pn.word}`;
-          if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [subj, v, pn] });
+    for (const subj of subjects) {
+      for (const v of verbs) {
+        if (v.word.toLowerCase() === "heter" && properNames.length > 0) {
+          for (const pn of properNames) {
+            const sent = `${cap(subj.word)} ${v.word} ${pn.word}`;
+            if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [subj, v, pn] });
+          }
+        } else if (["odlar", "kommer", "mår", "går", "har"].includes(v.word.toLowerCase())) {
+          const sent = `${cap(subj.word)} ${v.word}`;
+          if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [subj, v] });
         }
-      } else if (v.word.toLowerCase() === "odlar") {
-        const sent = `${cap(subj.word)} ${v.word}`;
-        if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [subj, v] });
+      }
+    }
+  }
+
+  if (verbs.length > 0 && subjects.length > 0) {
+    for (const v of verbs) {
+      if (["mår", "kommer"].includes(v.word.toLowerCase())) {
+        for (const subj of subjects) {
+          const sent = `${cap(v.word)} ${subj.word}`;
+          if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [v, subj] });
+        }
       }
     }
   }
@@ -504,15 +516,6 @@ async function generateFallbackPhrase(
           }
         }
       }
-    }
-  }
-
-  if (verbs.length > 0 && subjects.length > 0) {
-    const v = verbs.find((v) => v.word.toLowerCase() === "mår");
-    const subj = subjects.find((s) => s.word.toLowerCase() === "du");
-    if (v && subj) {
-      const sent = `${cap(v.word)} ${subj.word}`;
-      if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [v, subj] });
     }
   }
 
@@ -559,9 +562,14 @@ async function generateFallbackPhrase(
     }
   }
 
-  // Preferir frases mais longas (4+ palavras), depois embaralhar
-  const byLength = candidates.sort((a, b) => b.wordsUsed.length - a.wordsUsed.length);
-  const long = byLength.filter((c) => c.wordsUsed.length >= 4);
+  // Preferir frases que NÃO começam com Min (variedade), depois por tamanho, depois embaralhar
+  const startsWithMin = (c: { sentenceTarget: string }) =>
+    c.sentenceTarget.toLowerCase().trimStart().startsWith("min ");
+  const nonMin = candidates.filter((c) => !startsWithMin(c));
+  const minPhrases = candidates.filter(startsWithMin);
+  const preferred = nonMin.length > 0 ? nonMin : minPhrases;
+  const byLength = preferred.sort((a, b) => b.wordsUsed.length - a.wordsUsed.length);
+  const long = byLength.filter((c) => c.wordsUsed.length >= 3);
   const pool = long.length > 0 ? long : byLength;
   const shuffled = [...pool].sort(() => Math.random() - 0.5);
   for (const c of shuffled) {
