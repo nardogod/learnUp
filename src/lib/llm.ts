@@ -17,7 +17,7 @@ export interface PhraseResult {
 
 function getGrammarRules(targetLanguage: string): string | null {
   const lang = targetLanguage.toLowerCase();
-  if (lang.includes("svensk") || lang.includes("sueco") || lang === "sv") {
+  if (lang.includes("svensk") || lang.includes("sueco") || lang.includes("swedish") || lang === "sv") {
     return "heter exige nome próprio (Anna, Erik). min exige substantivo depois (min fru, min vän). NUNCA: min+verbo, min+advérbio, min+interjeição. Ex válidos: Jag heter Anna, Min fru odlar, Hur mår du, Hej. Ex inválidos: Min mår, Min hur, Jag heter fru.";
   }
   if (lang.includes("inglês") || lang.includes("english") || lang === "en") {
@@ -153,6 +153,7 @@ const SWEDISH_INVALID_PAIRS: [string, string][] = [
   ["VERB_INTRANS", "VERB_INTRANS"],
   ["VERB_INTRANS", "VERB_NAME"],
   ["VERB_NAME", "VERB_INTRANS"],
+  ["VERB_NAME", "NOUN"],
   ["PRON", "POSS"],
   ["INTJ", "VERB_INTRANS"],
   ["INTJ", "VERB_NAME"],
@@ -185,6 +186,18 @@ export function validateSwedishGrammar(
   const wordToTrans = new Map(userWords.map((w) => [w.word.toLowerCase(), w.translation ?? ""]));
   const categories = tokens.map((t) => getSwedishCategory(t, userSet, wordToTrans));
   if (categories.some((c) => c === "UNKNOWN")) return { valid: false, reason: "palavra sem categoria definida" };
+
+  const heterIdx = categories.indexOf("VERB_NAME");
+  if (heterIdx >= 0) {
+    if (heterIdx === categories.length - 1) return { valid: false, reason: "heter exige complemento" };
+    const complement = categories[heterIdx + 1];
+    if (complement === "NOUN") {
+      return { valid: false, reason: "heter exige nome próprio (Anna, Erik), não substantivo comum (vän, fru, kvinna)" };
+    }
+    if (complement !== "PROPN") {
+      return { valid: false, reason: "heter exige nome próprio como complemento" };
+    }
+  }
 
   if (categories.length === 1) {
     if (categories[0] === "PROPN") return { valid: false, reason: "nome próprio isolado sem contexto" };
@@ -222,19 +235,6 @@ export function validateSwedishGrammar(
   }
   if (categories[0] === "NOUN" && categories[1] === "POSS") {
     return { valid: false, reason: "possessivo deve vir antes do substantivo" };
-  }
-  const heterIdx = categories.indexOf("VERB_NAME");
-  if (heterIdx >= 0) {
-    if (heterIdx === categories.length - 1) {
-      return { valid: false, reason: "heter exige complemento" };
-    }
-    const complement = categories[heterIdx + 1];
-    if (complement === "NOUN") {
-      return { valid: false, reason: "heter exige nome próprio (ex: Anna, Erik), não substantivo comum" };
-    }
-    if (complement !== "PROPN") {
-      return { valid: false, reason: "heter exige complemento nominal" };
-    }
   }
   return { valid: false, reason: "estrutura gramatical inválida" };
 }
@@ -284,7 +284,7 @@ export async function generatePhrase(
     }
 
     const lang = targetLanguage.toLowerCase();
-    const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang === "sv";
+    const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang.includes("swedish") || lang === "sv";
     if (isSwedish) {
       const grammar = validateSwedishGrammar(result.sentenceTarget, words);
       if (!grammar.valid) {
@@ -347,7 +347,7 @@ async function generateFallbackPhrase(
   excludePhrases: string[]
 ): Promise<PhraseResult | null> {
   const lang = targetLanguage.toLowerCase();
-  const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang === "sv";
+  const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang.includes("swedish") || lang === "sv";
   if (!isSwedish || words.length < 2) {
     return generateRandomPairFallback(targetLanguage, nativeLanguage, words, excludePhrases);
   }
@@ -448,7 +448,7 @@ async function generateRandomPairFallback(
 ): Promise<PhraseResult | null> {
   if (words.length < 2) return null;
   const lang = targetLanguage.toLowerCase();
-  const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang === "sv";
+  const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang.includes("swedish") || lang === "sv";
 
   const shuffled = [...words].sort(() => Math.random() - 0.5);
   for (let i = 0; i < shuffled.length; i++) {
