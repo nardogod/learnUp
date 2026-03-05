@@ -22,6 +22,10 @@ const mockPrisma = {
 vi.mock("./db", () => ({ prisma: mockPrisma }));
 vi.mock("./telegram", () => ({ sendMessage: vi.fn().mockResolvedValue(true) }));
 vi.mock("./llm", () => ({ generatePhrase: vi.fn().mockResolvedValue(null) }));
+vi.mock("./nlp", () => ({
+  categorizeWithSpacy: vi.fn().mockResolvedValue(null),
+  isNlpAvailable: vi.fn().mockResolvedValue(false),
+}));
 
 const mockUser: User = {
   id: "u1",

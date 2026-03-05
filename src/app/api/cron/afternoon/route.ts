@@ -35,7 +35,11 @@ export async function GET(request: NextRequest) {
     const result = await generatePhrase(
       user.targetLanguage,
       user.nativeLanguage,
-      user.words.map((w: { word: string; translation: string }) => ({ word: w.word, translation: w.translation })),
+      user.words.map((w: { word: string; translation: string; wordType?: string | null }) => ({
+        word: w.word,
+        translation: w.translation,
+        wordType: w.wordType,
+      })),
       excludePhrases.length > 0 ? { excludePhrases } : undefined
     );
     if (result) {

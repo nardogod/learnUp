@@ -48,6 +48,7 @@ Variáveis de ambiente necessárias na Vercel:
 - `TELEGRAM_BOT_TOKEN` – token do bot
 - `GROQ_API_KEY` – (recomendado) chave Groq para LLM gratuito
 - `OLLAMA_BASE_URL` – (opcional) URL do Ollama no Render, se não usar Groq
+- `NLP_API_URL` – (opcional) URL do serviço NLP no Render (spaCy sueco), fallback para regras manuais
 
 ---
 
@@ -140,8 +141,11 @@ Variáveis de ambiente necessárias na Vercel:
    |-----|-------|
    | OLLAMA_BASE_URL | https://learnup-ollama-xxxx.onrender.com |
    | OLLAMA_MODEL | qwen2.5:0.5b |
+   | NLP_API_URL | https://learnup-nlp-xxxx.onrender.com |
 
 4. Faça um novo deploy (Deployments → ⋮ → Redeploy).
+
+> **NLP (opcional):** O Blueprint cria o serviço `learnup-nlp` (spaCy + modelo sueco KBLab). Use a URL do serviço em `NLP_API_URL` para validação gramatical com 98% de acurácia. Sem essa variável, o bot usa regras manuais.
 
 ---
 

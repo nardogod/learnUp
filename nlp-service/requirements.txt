@@ -1,0 +1,5 @@
+# spaCy + modelo sueco (sv_core_news_sm = 95% POS, oficial spaCy)
+# Modelo: python -m spacy download sv_core_news_sm
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+spacy>=3.7.0

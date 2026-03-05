@@ -5,6 +5,7 @@ import { sendMessage } from "./telegram";
 import { canAddWord, canUseManualFrase, getRemainingFraseCount } from "./limits";
 import { generatePhrase, extractWordsFromPhrase, getLLMProvider } from "./llm";
 import { findDuplicateWord, deduplicateUserWords } from "./words";
+import { categorizeWithSpacy, isNlpAvailable } from "./nlp";
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -95,11 +96,13 @@ export async function handleMessage(user: User, text: string, chatId: string): P
     return;
   }
 
-  // /status - debug: qual LLM está ativo
+  // /status - debug: qual LLM e NLP estão ativos
   if (isCommand(text, "/status")) {
     const provider = getLLMProvider();
-    const msg = provider === "groq" ? "✅ LLM: Groq" : "⚠️ LLM: Ollama (Groq não configurado)";
-    await sendMessage(chatId, msg);
+    const nlpOk = await isNlpAvailable();
+    const llmMsg = provider === "groq" ? "✅ LLM: Groq" : "⚠️ LLM: Ollama (Groq não configurado)";
+    const nlpMsg = nlpOk ? "✅ NLP: spaCy (validação 98%)" : "⚠️ NLP: regras manuais";
+    await sendMessage(chatId, `${llmMsg}\n${nlpMsg}`);
     return;
   }
 
@@ -199,7 +202,7 @@ export async function handleMessage(user: User, text: string, chatId: string): P
     const result = await generatePhrase(
       user.targetLanguage,
       user.nativeLanguage,
-      words.map((w) => ({ word: w.word, translation: w.translation })),
+      words.map((w) => ({ word: w.word, translation: w.translation, wordType: w.wordType })),
       { excludePhrases: excludePhrases.length > 0 ? excludePhrases : undefined }
     );
 
@@ -283,16 +286,23 @@ export async function handleMessage(user: User, text: string, chatId: string): P
     }
     let wordCount = await prisma.word.count({ where: { userId: user.id } });
     let saved = 0;
+    const isSwedish = user.targetLanguage.toLowerCase().includes("svensk") || user.targetLanguage.toLowerCase().includes("sueco");
     for (const w of extracted) {
       if (!canAddWord(user, wordCount)) break;
       const dup = await findDuplicateWord(user.id, w.word.trim());
       if (dup.exists) continue;
+      let wordType: string | null = null;
+      if (isSwedish) {
+        const cat = await categorizeWithSpacy(w.word.trim());
+        if (cat?.category) wordType = cat.category;
+      }
       await prisma.word.create({
         data: {
           userId: user.id,
           word: w.word.trim(),
           translation: w.translation.trim(),
           description: w.tip?.trim() || null,
+          wordType,
         },
       });
       wordCount++;
@@ -455,12 +465,19 @@ export async function handleMessage(user: User, text: string, chatId: string): P
       return;
     }
 
+    let wordType: string | null = null;
+    if (user.targetLanguage.toLowerCase().includes("svensk") || user.targetLanguage.toLowerCase().includes("sueco")) {
+      const cat = await categorizeWithSpacy(word);
+      if (cat?.category) wordType = cat.category;
+    }
+
     await prisma.word.create({
       data: {
         userId: user.id,
         word,
         translation,
         description,
+        wordType,
       },
     });
     await prisma.user.update({

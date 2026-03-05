@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("./nlp", () => ({ validateWithSpacy: vi.fn().mockResolvedValue(null) }));
+
 import { validateSwedishGrammar } from "./llm";
 
 const words = [
@@ -15,6 +18,10 @@ const words = [
   { word: "Anna", translation: "Anna" },
   { word: "Maria", translation: "Maria" },
   { word: "du", translation: "você" },
+  { word: "bra", translation: "bom" },
+  { word: "och", translation: "e" },
+  { word: "det", translation: "isso" },
+  { word: "är", translation: "é" },
 ];
 
 describe("validateSwedishGrammar", () => {
@@ -120,5 +127,34 @@ describe("validateSwedishGrammar", () => {
     const r = validateSwedishGrammar("Jag kvinna", words);
     expect(r.valid).toBe(false);
     expect(r.reason).toContain("verbo");
+  });
+  it("rejeita Min bra (POSS + ADJ)", () => {
+    const r = validateSwedishGrammar("Min bra", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("proibida");
+  });
+  it("rejeita Min och (POSS + CONJ)", () => {
+    const r = validateSwedishGrammar("Min och", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("proibida");
+  });
+  it("rejeita Min det (POSS + DET)", () => {
+    const r = validateSwedishGrammar("Min det", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("proibida");
+  });
+  it("rejeita Bra odlar (ADJ + VERB sem sujeito)", () => {
+    const r = validateSwedishGrammar("Bra odlar", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("proibida");
+  });
+  it("aceita Jag är bra", () => {
+    expect(validateSwedishGrammar("Jag är bra", words).valid).toBe(true);
+  });
+  it("aceita Det är bra", () => {
+    expect(validateSwedishGrammar("Det är bra", words).valid).toBe(true);
+  });
+  it("aceita Min vän är bra", () => {
+    expect(validateSwedishGrammar("Min vän är bra", words).valid).toBe(true);
   });
 });
