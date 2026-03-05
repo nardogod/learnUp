@@ -23,20 +23,25 @@ function buildPrompt(
     options?.excludePhrases && options.excludePhrases.length > 0
       ? `\nNÃO repita estas frases (já enviadas 2x hoje):\n${options.excludePhrases.map((p) => `- ${p}`).join("\n")}\n`
       : "";
+  const allowedWords = words.map((w) => w.word).join(", ");
+  const strictRule = `REGRA CRÍTICA - OBRIGATÓRIO: A frase em ${targetLanguage} deve conter APENAS estas palavras: [${allowedWords}]. NENHUMA outra palavra é permitida. Se precisar, faça frases curtas (ex: 2-3 palavras).`;
+
   return `Você é professor de ${targetLanguage}. O aluno fala ${nativeLanguage}.
 
-Palavras disponíveis (tradução pode ser curta ou explicação longa - use o contexto completo):
+Palavras PERMITIDAS (use SOMENTE estas): [${allowedWords}]
 ${wordsList}
 ${excludeNote}
 
+${strictRule}
+
 Gere:
-1) Uma frase natural em ${targetLanguage} (3-6 palavras) usando algumas dessas palavras
+1) Uma frase natural em ${targetLanguage} usando APENAS palavras da lista
 2) Tradução em ${nativeLanguage}
-3) Lista das palavras usadas
+3) Lista das palavras usadas (apenas as da lista)
 
 Responda APENAS em JSON válido, sem markdown, sem explicações:
 {"sentenceTarget":"...","sentenceNative":"...","wordsUsed":["..."]}
-Opcional: adicione "tip" com dica gramatical ou cultural.`;
+Opcional: adicione "tip" com dica gramatical ou cultural sobre as palavras usadas.`;
 }
 
 function parsePhraseResponse(raw: string): PhraseResult | null {
@@ -53,18 +58,55 @@ function parsePhraseResponse(raw: string): PhraseResult | null {
   }
 }
 
+/** Extrai palavras de uma frase (ignora pontuação) */
+function extractWordsFromSentence(sentence: string): string[] {
+  return sentence
+    .split(/\s+/)
+    .map((w) => w.replace(/[^\p{L}]/gu, ""))
+    .filter((w) => w.length > 0);
+}
+
+/** Verifica se todas as palavras da frase estão no vocabulário do usuário (case-insensitive) */
+export function validatePhraseUsesOnlyVocabulary(
+  sentenceTarget: string,
+  userWords: { word: string }[]
+): { valid: boolean; unknownWords: string[] } {
+  const allowed = new Set(userWords.map((w) => w.word.toLowerCase().trim()));
+  const wordsInSentence = extractWordsFromSentence(sentenceTarget);
+  const unknown: string[] = [];
+  for (const w of wordsInSentence) {
+    const lower = w.toLowerCase();
+    if (!allowed.has(lower)) {
+      unknown.push(w);
+    }
+  }
+  return { valid: unknown.length === 0, unknownWords: unknown };
+}
+
 export async function generatePhrase(
   targetLanguage: string,
   nativeLanguage: string,
   words: { word: string; translation: string }[],
   options?: { excludePhrases?: string[] }
 ): Promise<PhraseResult | null> {
-  const prompt = buildPrompt(targetLanguage, nativeLanguage, words, options);
+  const maxAttempts = 5;
+  let currentOptions = options;
 
-  if (GROQ_API_KEY) {
-    return generateWithGroq(prompt);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const prompt = buildPrompt(targetLanguage, nativeLanguage, words, currentOptions);
+    const result = GROQ_API_KEY ? await generateWithGroq(prompt) : await generateWithOllama(prompt);
+    if (!result) continue;
+
+    const { valid } = validatePhraseUsesOnlyVocabulary(result.sentenceTarget, words);
+    if (valid) return result;
+
+    // LLM usou palavras não cadastradas - excluir frase e retentar
+    currentOptions = {
+      ...currentOptions,
+      excludePhrases: [...(currentOptions?.excludePhrases ?? []), result.sentenceTarget],
+    };
   }
-  return generateWithOllama(prompt);
+  return null;
 }
 
 async function generateWithGroq(prompt: string): Promise<PhraseResult | null> {
@@ -80,7 +122,7 @@ async function generateWithGroq(prompt: string): Promise<PhraseResult | null> {
       body: JSON.stringify({
         model: GROQ_MODEL,
         messages: [{ role: "user", content: prompt }],
-        temperature: 0.7,
+        temperature: 0.3,
         response_format: { type: "json_object" },
       }),
       signal: controller.signal,
@@ -115,6 +157,7 @@ async function generateWithOllama(prompt: string): Promise<PhraseResult | null> 
         prompt,
         stream: false,
         format: "json",
+        options: { temperature: 0.3 },
       }),
       signal: controller.signal,
     });
@@ -132,6 +175,70 @@ async function generateWithOllama(prompt: string): Promise<PhraseResult | null> 
     return parsePhraseResponse(raw);
   } catch (e) {
     console.error("Ollama generatePhrase error:", e);
+    return null;
+  }
+}
+
+export interface ExtractedWord {
+  word: string;
+  translation: string;
+  tip?: string;
+}
+
+export async function extractWordsFromPhrase(
+  phrase: string,
+  targetLanguage: string,
+  nativeLanguage: string
+): Promise<ExtractedWord[] | null> {
+  const prompt = `Você é professor de ${targetLanguage}. O aluno fala ${nativeLanguage}.
+
+Frase em ${targetLanguage}: "${phrase}"
+
+Extraia cada palavra ou expressão idiomática significativa da frase e forneça a tradução em ${nativeLanguage}.
+Ignore artigos isolados (a, o, um) a menos que sejam parte de expressão.
+Opcional: para cada palavra, adicione "tip" com dica gramatical, uso ou exemplo curto.
+Retorne APENAS JSON válido, sem markdown:
+{"words":[{"word":"palavra1","translation":"tradução1","tip":"dica opcional"},{"word":"palavra2","translation":"tradução2"}]}`;
+
+  const callLLM = async (p: string): Promise<string | null> => {
+    if (GROQ_API_KEY) {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages: [{ role: "user", content: p }],
+          temperature: 0.3,
+          response_format: { type: "json_object" },
+        }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      return data.choices?.[0]?.message?.content?.trim() ?? null;
+    }
+    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: MODEL, prompt: p, stream: false, format: "json" }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { response?: string };
+    return data.response?.trim() ?? null;
+  };
+
+  try {
+    const raw = await callLLM(prompt);
+    if (!raw) return null;
+    let jsonStr = raw;
+    const match = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match) jsonStr = match[1].trim();
+    const parsed = JSON.parse(jsonStr) as { words?: ExtractedWord[] };
+    if (!Array.isArray(parsed.words) || parsed.words.length === 0) return null;
+    return parsed.words.filter((w) => w.word && w.translation);
+  } catch {
     return null;
   }
 }

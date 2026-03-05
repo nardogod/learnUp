@@ -95,10 +95,16 @@ async function cmdEdit(telegramId: string) {
   const name = await ask(`Nome [${user.name}]: `) || user.name;
   const email = await ask(`Email [${user.email || ""}]: `) || user.email;
   const plan = await ask(`Plano (free/premium) [${user.plan}]: `) || user.plan;
-  let phrasesPerDay = user.phrasesPerDay;
+  let phrasesPerDay: number | null = user.phrasesPerDay;
   if (plan === "premium") {
-    const n = await ask(`Frases/dia (1-10) [${user.phrasesPerDay ?? 3}]: `);
-    phrasesPerDay = n ? parseInt(n, 10) : user.phrasesPerDay;
+    const defaultVal = user.phrasesPerDay ? String(user.phrasesPerDay) : "ilimitado";
+    const n = await ask(`Frases/dia (1-10 ou ilimitado) [${defaultVal}]: `);
+    if (!n || n.toLowerCase() === "ilimitado" || n.toLowerCase() === "i") {
+      phrasesPerDay = null;
+    } else {
+      const num = parseInt(n, 10);
+      phrasesPerDay = num >= 1 && num <= 10 ? num : user.phrasesPerDay;
+    }
   } else {
     phrasesPerDay = null;
   }

@@ -2,14 +2,45 @@ import type { User } from "@prisma/client";
 import { prisma } from "./db";
 import { getMessage } from "./messages";
 import { sendMessage } from "./telegram";
-import { canAddWord, canUseManualFrase } from "./limits";
-import { generatePhrase } from "./llm";
+import { canAddWord, canUseManualFrase, getRemainingFraseCount } from "./limits";
+import { generatePhrase, extractWordsFromPhrase } from "./llm";
+
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function boldWordsInSentence(sentence: string, wordsUsed: string[]): string {
+  const unique = [...new Set(wordsUsed)].filter((w) => w.length > 0).sort((a, b) => b.length - a.length);
+  let result = escapeHtml(sentence);
+  for (const word of unique) {
+    const escaped = escapeHtml(word);
+    const regex = new RegExp(`(${escaped.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
+    result = result.replace(regex, "<b>$1</b>");
+  }
+  return result;
+}
 
 const FRASE_TRIGGERS = ["gerar frase", "generate phrase", "generera mening", "frase", "me dá uma frase", "give me a sentence", "ge mig en mening"];
 
 function isAddWordCommand(text: string): boolean {
   const t = text.trim().toLowerCase();
   return t === "/addword" || t === "/novapalavra" || t === "/newword" || t === "/nyttord";
+}
+
+function isAddPhraseCommand(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return t === "/addphrase" || t === "/addfrase" || t === "/frase nova" || t.includes("adicionar frase");
+}
+
+function isEditWordTrigger(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  return (
+    t === "/editword" ||
+    t === "/editpalavra" ||
+    t.includes("trocar significado") ||
+    t.includes("mudar significado") ||
+    t.includes("editar palavra")
+  );
 }
 
 function isFraseTrigger(text: string): boolean {
@@ -47,9 +78,10 @@ export async function handleMessage(user: User, text: string, chatId: string): P
   // /plan
   if (text.trim() === "/plan") {
     if (user.plan === "premium") {
-      const msg = getMessage(user.nativeLanguage, "planPremium", {
-        count: String(user.phrasesPerDay ?? 3),
-      });
+      const msg =
+        user.phrasesPerDay == null
+          ? getMessage(user.nativeLanguage, "planPremiumUnlimited")
+          : getMessage(user.nativeLanguage, "planPremium", { count: String(user.phrasesPerDay) });
       await sendMessage(chatId, msg);
     } else {
       await sendMessage(chatId, getMessage(user.nativeLanguage, "planFree"));
@@ -59,17 +91,21 @@ export async function handleMessage(user: User, text: string, chatId: string): P
 
   // /palavras
   if (text.trim() === "/palavras") {
-    const words = await prisma.word.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: "desc" },
-      take: 50,
-    });
+    const [words, totalCount] = await Promise.all([
+      prisma.word.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+      }),
+      prisma.word.count({ where: { userId: user.id } }),
+    ]);
     if (words.length === 0) {
       await sendMessage(chatId, getMessage(user.nativeLanguage, "noWords"));
       return;
     }
     const list = words.map((w) => `• ${w.word} = ${w.translation}`).join("\n");
-    await sendMessage(chatId, `📚 Suas palavras (${words.length}):\n\n${list}`);
+    const suffix = totalCount > 50 ? `\n\n... e mais ${totalCount - 50} palavras` : "";
+    await sendMessage(chatId, `📚 Suas palavras (${totalCount}):\n\n${list}${suffix}`);
     return;
   }
 
@@ -161,9 +197,137 @@ export async function handleMessage(user: User, text: string, chatId: string): P
       },
     });
 
-    let out = `📝 ${result.sentenceTarget}\n🇧🇷 ${result.sentenceNative}\n\n📚 ${result.wordsUsed.join(", ")}`;
-    if (result.tip) out += `\n\n💡 ${result.tip}`;
-    await sendMessage(chatId, out);
+    // Negrito apenas para palavras do vocabulário do usuário
+    const userWordsForBold = words.map((w) => w.word);
+    const userTranslationsForBold = words.map((w) => w.translation);
+    const sentenceTargetBold = boldWordsInSentence(result.sentenceTarget, userWordsForBold);
+    const sentenceNativeBold = boldWordsInSentence(result.sentenceNative, userTranslationsForBold);
+    const remaining = getRemainingFraseCount({
+      ...freshUser,
+      fraseCountToday: newCount,
+      lastFraseDate: new Date(),
+    });
+    const wordCount = words.length;
+
+    const wordsUsedFromVocab = result.wordsUsed.filter((w) =>
+      words.some((uw) => uw.word.toLowerCase() === w.toLowerCase())
+    );
+    let out = `📝 ${sentenceTargetBold}\n🇧🇷 ${sentenceNativeBold}\n\n📚 ${wordsUsedFromVocab.join(", ")}`;
+    if (result.tip) out += `\n\n💡 LearnUP: ${result.tip}`;
+    const phrasesMsg =
+      remaining === Infinity
+        ? getMessage(user.nativeLanguage, "phrasesLeftUnlimited", { total: String(wordCount) })
+        : getMessage(user.nativeLanguage, "phrasesLeft", { left: String(remaining), total: String(wordCount) });
+    out += `\n\n${phrasesMsg}`;
+    await sendMessage(chatId, out, { parse_mode: "HTML" });
+    return;
+  }
+
+  // /addphrase - extrair palavras de uma frase
+  if (state === "idle" && isAddPhraseCommand(text)) {
+    const wordCount = await prisma.word.count({ where: { userId: user.id } });
+    if (!canAddWord(user, wordCount)) {
+      await sendMessage(chatId, getMessage(user.nativeLanguage, "limitReached"));
+      return;
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { conversationState: "aguardando_frase" },
+    });
+    await sendMessage(
+      chatId,
+      getMessage(user.nativeLanguage, "addPhrasePrompt", { lang: user.targetLanguage })
+    );
+    return;
+  }
+
+  if (state === "aguardando_frase") {
+    const phrase = text.trim();
+    if (!phrase || phrase.startsWith("/")) return;
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { conversationState: "idle" },
+    });
+    const extracted = await extractWordsFromPhrase(phrase, user.targetLanguage, user.nativeLanguage);
+    if (!extracted || extracted.length === 0) {
+      await sendMessage(chatId, getMessage(user.nativeLanguage, "tryAgain"));
+      return;
+    }
+    let wordCount = await prisma.word.count({ where: { userId: user.id } });
+    let saved = 0;
+    for (const w of extracted) {
+      if (!canAddWord(user, wordCount)) break;
+      await prisma.word.create({
+        data: {
+          userId: user.id,
+          word: w.word.trim(),
+          translation: w.translation.trim(),
+          description: w.tip?.trim() || null,
+        },
+      });
+      wordCount++;
+      saved++;
+    }
+    const totalCount = await prisma.word.count({ where: { userId: user.id } });
+    const msg =
+      saved === extracted.length
+        ? getMessage(user.nativeLanguage, "phraseWordsSaved", { count: String(saved), total: String(totalCount) })
+        : getMessage(user.nativeLanguage, "phraseWordsPartial", { saved: String(saved), total: String(totalCount) });
+    await sendMessage(chatId, msg);
+    return;
+  }
+
+  // trocar significado / editword
+  if (state === "idle" && isEditWordTrigger(text)) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { conversationState: "aguardando_palavra_editar" },
+    });
+    await sendMessage(chatId, getMessage(user.nativeLanguage, "editWordPrompt"));
+    return;
+  }
+
+  if (state === "aguardando_palavra_editar") {
+    const wordToEdit = text.trim();
+    if (!wordToEdit || wordToEdit.startsWith("/")) return;
+    const existing = await prisma.word.findFirst({
+      where: { userId: user.id, word: { equals: wordToEdit, mode: "insensitive" } },
+      orderBy: { createdAt: "desc" },
+    });
+    if (!existing) {
+      await sendMessage(chatId, getMessage(user.nativeLanguage, "editWordNotFound", { word: wordToEdit }));
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { conversationState: "idle" },
+      });
+      return;
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { conversationState: "aguardando_novo_significado", tempWord: existing.id },
+    });
+    await sendMessage(chatId, getMessage(user.nativeLanguage, "editWordAskNew", { word: existing.word }));
+    return;
+  }
+
+  if (state === "aguardando_novo_significado") {
+    const wordId = user.tempWord ?? "";
+    const newTranslation = text.trim();
+    if (!wordId || !newTranslation || newTranslation.startsWith("/")) return;
+    const word = await prisma.word.findFirst({ where: { id: wordId, userId: user.id } });
+    if (!word) {
+      await prisma.user.update({ where: { id: user.id }, data: { conversationState: "idle", tempWord: null } });
+      return;
+    }
+    await prisma.word.update({
+      where: { id: wordId },
+      data: { translation: newTranslation },
+    });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { conversationState: "idle", tempWord: null },
+    });
+    await sendMessage(chatId, getMessage(user.nativeLanguage, "editWordSaved", { word: word.word, translation: newTranslation }));
     return;
   }
 
@@ -216,29 +380,80 @@ export async function handleMessage(user: User, text: string, chatId: string): P
       return;
     }
 
+    // Armazena "palavra|||tradução" e pede dica opcional
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        conversationState: "aguardando_dica",
+        tempWord: `${tempWord}|||${translation}`,
+      },
+    });
+    await sendMessage(chatId, getMessage(user.nativeLanguage, "wordTipPrompt", { word: tempWord }));
+    return;
+  }
+
+  if (state === "aguardando_dica") {
+    const stored = user.tempWord ?? "";
+    const sep = stored.indexOf("|||");
+    if (sep === -1) {
+      await prisma.user.update({ where: { id: user.id }, data: { conversationState: "idle", tempWord: null } });
+      return;
+    }
+    const word = stored.slice(0, sep);
+    const translation = stored.slice(sep + 3);
+    const tip = text.trim();
+    const description = tip && !tip.startsWith("/") ? tip : null;
+
     await prisma.word.create({
       data: {
         userId: user.id,
-        word: tempWord,
+        word,
         translation,
+        description,
       },
     });
     await prisma.user.update({
       where: { id: user.id },
       data: { conversationState: "idle", tempWord: null },
     });
-    const newCount = wordCount + 1;
-    const msg = getMessage(user.nativeLanguage, "wordSaved", {
-      word: tempWord,
-      translation,
-    });
+    const newCount = await prisma.word.count({ where: { userId: user.id } });
+    const msg = getMessage(user.nativeLanguage, "wordSaved", { word, translation });
     await sendMessage(chatId, `${msg}\n\nVocê tem ${newCount} palavras.`);
     return;
   }
 
-  // idle sem comando reconhecido - ignorar ou ajudar
+  // Consulta de palavra: usuário envia uma palavra (ex: vad) e o sistema responde se está cadastrada
   if (state === "idle") {
-    // Opcional: enviar dica
+    const query = text.trim();
+    if (query && !query.startsWith("/") && query.length <= 80) {
+      const found = await prisma.word.findFirst({
+        where: { userId: user.id, word: { equals: query, mode: "insensitive" } },
+        orderBy: { createdAt: "desc" },
+      });
+      if (found) {
+        const dateStr = found.createdAt.toLocaleDateString(
+          user.nativeLanguage === "português" ? "pt-BR" : user.nativeLanguage === "svenska" ? "sv-SE" : "en-GB",
+          { day: "numeric", month: "long", year: "numeric" }
+        );
+        const tip = found.description ?? found.example;
+        const msg = tip
+          ? getMessage(user.nativeLanguage, "wordLookupFoundWithTip", {
+              word: found.word,
+              translation: found.translation,
+              tip,
+              date: dateStr,
+            })
+          : getMessage(user.nativeLanguage, "wordLookupFound", {
+              word: found.word,
+              translation: found.translation,
+              date: dateStr,
+            });
+        await sendMessage(chatId, msg);
+        return;
+      }
+      await sendMessage(chatId, getMessage(user.nativeLanguage, "wordLookupNotFound"));
+      return;
+    }
     return;
   }
 }

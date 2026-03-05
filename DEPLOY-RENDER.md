@@ -1,8 +1,33 @@
-# Deploy do Ollama no Render – Passo a passo
+# Deploy do LearnUP – Passo a passo
 
-Este guia explica como fazer o deploy do Ollama no Render para o bot LearnUP funcionar em produção.
+Este guia explica como fazer o deploy completo do LearnUP (app na Vercel + Ollama no Render).
 
 **Plano Free:** 512MB RAM, 750h/mês, dorme após 15 min sem uso (~1 min para acordar). Use modelo `qwen2.5:0.5b`.
+
+---
+
+## Comandos de deploy
+
+```powershell
+# 1. Rodar migrações no banco de produção (Neon)
+npm run db:migrate:deploy
+
+# 2. Deploy do app na Vercel (via Git ou CLI)
+git push origin main
+# ou, se usar Vercel CLI:
+npm run deploy:vercel
+
+# 3. Atualizar comandos do bot no Telegram (após deploy)
+npm run deploy:commands
+```
+
+| Comando | Descrição |
+|---------|-----------|
+| `npm run db:migrate:deploy` | Aplica migrações Prisma no banco de produção |
+| `npm run deploy:vercel` | Deploy na Vercel (requer `vercel` instalado) |
+| `npm run deploy:commands` | Atualiza o menu de comandos do bot no Telegram |
+
+> **Nota:** O deploy do Ollama no Render é automático via Blueprint ao fazer `git push` para o repositório conectado.
 
 ---
 
@@ -11,6 +36,18 @@ Este guia explica como fazer o deploy do Ollama no Render para o bot LearnUP fun
 - Conta no [Render](https://render.com) (grátis)
 - Repositório do LearnUP no GitHub
 - Conta no [GitHub](https://github.com)
+
+---
+
+## Parte 0: Deploy do app (Vercel)
+
+O app Next.js é deployado na Vercel. Conecte o repositório em [vercel.com](https://vercel.com) → **Add New Project** → selecione o repo LearnUP. Cada `git push` dispara um deploy automático.
+
+Variáveis de ambiente necessárias na Vercel:
+- `DATABASE_URL` – URL do Neon PostgreSQL
+- `TELEGRAM_BOT_TOKEN` – token do bot
+- `GROQ_API_KEY` – (recomendado) chave Groq para LLM gratuito
+- `OLLAMA_BASE_URL` – (opcional) URL do Ollama no Render, se não usar Groq
 
 ---
 

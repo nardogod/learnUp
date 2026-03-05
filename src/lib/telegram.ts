@@ -78,8 +78,10 @@ export async function setMyCommands(): Promise<boolean> {
   const commands = [
     { command: "start", description: "Iniciar / Welcome" },
     { command: "addword", description: "Adicionar nova palavra" },
+    { command: "addphrase", description: "Extrair palavras de uma frase" },
     { command: "frase", description: "Gerar frase com suas palavras" },
     { command: "palavras", description: "Ver suas palavras" },
+    { command: "editword", description: "Trocar significado de palavra" },
     { command: "ranking", description: "Top 3 usuários" },
     { command: "plan", description: "Ver plano e limites" },
     { command: "cancel", description: "Cancelar operação" },

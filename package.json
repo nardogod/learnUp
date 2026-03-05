@@ -17,7 +17,10 @@
     "test:bot": "tsx scripts/test-bot-message.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
+    "deploy:vercel": "vercel --prod",
+    "deploy:commands": "npm run set-commands",
     "test": "vitest run",
     "test:watch": "vitest"
   },

@@ -2,7 +2,7 @@ import type { User, Word } from "@prisma/client";
 
 const FREE_WORD_LIMIT = 100;
 const FREE_FRASE_PER_DAY = 3;
-const FREE_MANUAL_FRASE_PER_DAY = 3;
+const FREE_MANUAL_FRASE_PER_DAY = 10;
 
 export function canAddWord(user: User, wordCount: number): boolean {
   if (user.plan === "premium") return true;
@@ -14,10 +14,9 @@ export function getWordLimit(user: User): number {
 }
 
 export function getPhrasesPerDay(user: User): number {
-  if (user.plan === "premium" && user.phrasesPerDay) {
-    return Math.min(10, Math.max(1, user.phrasesPerDay));
-  }
-  return FREE_FRASE_PER_DAY;
+  if (user.plan !== "premium") return FREE_FRASE_PER_DAY;
+  if (user.phrasesPerDay == null) return Infinity;
+  return Math.min(10, Math.max(1, user.phrasesPerDay));
 }
 
 export function canUseManualFrase(

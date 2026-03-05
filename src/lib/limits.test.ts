@@ -61,8 +61,11 @@ describe("getPhrasesPerDay", () => {
   it("returns 3 for free", () => {
     expect(getPhrasesPerDay(freeUser)).toBe(3);
   });
-  it("returns phrasesPerDay for premium", () => {
+  it("returns phrasesPerDay for premium when set", () => {
     expect(getPhrasesPerDay(premiumUser)).toBe(5);
+  });
+  it("returns Infinity for premium when phrasesPerDay is null", () => {
+    expect(getPhrasesPerDay({ ...premiumUser, phrasesPerDay: null })).toBe(Infinity);
   });
 });
 
@@ -70,21 +73,21 @@ describe("canUseManualFrase", () => {
   it("allows when no usage today", () => {
     expect(canUseManualFrase({ ...freeUser, lastFraseDate: null })).toBe(true);
   });
-  it("allows free user under 3 today", () => {
+  it("allows free user under 10 today", () => {
     expect(
       canUseManualFrase({
         ...freeUser,
         lastFraseDate: new Date(),
-        fraseCountToday: 2,
+        fraseCountToday: 9,
       })
     ).toBe(true);
   });
-  it("blocks free user at 3 today", () => {
+  it("blocks free user at 10 today", () => {
     expect(
       canUseManualFrase({
         ...freeUser,
         lastFraseDate: new Date(),
-        fraseCountToday: 3,
+        fraseCountToday: 10,
       })
     ).toBe(false);
   });
