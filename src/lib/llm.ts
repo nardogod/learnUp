@@ -436,7 +436,12 @@ export async function generatePhrase(
   const lang = targetLanguage.toLowerCase();
   const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang.includes("swedish") || lang === "sv";
   if (isSwedish) {
-    const lastResort = await generateLastResortPhrase(targetLanguage, nativeLanguage, words);
+    const lastResort = await generateLastResortPhrase(
+      targetLanguage,
+      nativeLanguage,
+      words,
+      options?.excludePhrases ?? []
+    );
     if (lastResort) return lastResort;
   }
   return null;
@@ -496,15 +501,24 @@ function classifyWords(words: { word: string; translation: string }[]): {
 async function generateLastResortPhrase(
   targetLanguage: string,
   nativeLanguage: string,
-  words: { word: string; translation: string }[]
+  words: { word: string; translation: string }[],
+  excludePhrases: string[] = []
 ): Promise<PhraseResult | null> {
   const { subjects, verbs, properNames, adverbs, adjectives, interjections } = classifyWords(words);
   const lowerSet = new Set(words.map((w) => w.word.toLowerCase()));
+  const excludeSet = new Set(excludePhrases.map((p) => p.trim().toLowerCase()));
 
   const has = (w: string) => lowerSet.has(w.toLowerCase());
+  const isExcluded = (s: string) => excludeSet.has(s.trim().toLowerCase());
 
   // 1) Jag mår bra, tack.
-  if (has("jag") && has("mår") && has("bra") && (has("tack") || interjections.some((i) => i.word.toLowerCase() === "tack"))) {
+  if (
+    !isExcluded("Jag mår bra, tack.") &&
+    has("jag") &&
+    has("mår") &&
+    has("bra") &&
+    (has("tack") || interjections.some((i) => i.word.toLowerCase() === "tack"))
+  ) {
     const sentenceTarget = "Jag mår bra, tack.";
     const sentenceNative =
       (await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [
@@ -521,7 +535,7 @@ async function generateLastResortPhrase(
   }
 
   // 2) Varifrån kommer du?
-  if (has("varifrån") && has("kommer") && has("du")) {
+  if (!isExcluded("Varifrån kommer du?") && has("varifrån") && has("kommer") && has("du")) {
     const sentenceTarget = "Varifrån kommer du?";
     const sentenceNative =
       (await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [
@@ -540,17 +554,19 @@ async function generateLastResortPhrase(
   if (has("jag") && has("heter") && properNames.length > 0) {
     const name = properNames[0];
     const sentenceTarget = `Jag heter ${name.word}`;
-    const sentenceNative =
-      (await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [
-        { word: "jag", translation: "eu" },
-        { word: "heter", translation: "chamar-se" },
-        { word: name.word, translation: name.translation },
-      ])) ?? `Eu me chamo ${name.translation || name.word}.`;
-    return {
-      sentenceTarget,
-      sentenceNative,
-      wordsUsed: ["jag", "heter", name.word],
-    };
+    if (!isExcluded(sentenceTarget)) {
+      const sentenceNative =
+        (await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [
+          { word: "jag", translation: "eu" },
+          { word: "heter", translation: "chamar-se" },
+          { word: name.word, translation: name.translation },
+        ])) ?? `Eu me chamo ${name.translation || name.word}.`;
+      return {
+        sentenceTarget,
+        sentenceNative,
+        wordsUsed: ["jag", "heter", name.word],
+      };
+    }
   }
 
   // 4) Fallback: primeira combinação válida de sujeito + verbo
@@ -558,6 +574,7 @@ async function generateLastResortPhrase(
     const subj = subjects[0];
     const v = verbs[0];
     const sentenceTarget = `${subj.word} ${v.word}`;
+    if (!isExcluded(sentenceTarget)) {
     const sentenceNative =
       (await translateSimple(sentenceTarget, targetLanguage, nativeLanguage, [subj, v])) ?? "";
     return {
@@ -565,6 +582,7 @@ async function generateLastResortPhrase(
       sentenceNative: sentenceNative || `${subj.translation} ${v.translation}`,
       wordsUsed: [subj.word, v.word],
     };
+    }
   }
 
   return null;
