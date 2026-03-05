@@ -114,8 +114,83 @@ export async function generatePhrase(
       excludePhrases: [...(currentOptions?.excludePhrases ?? []), result.sentenceTarget],
     };
   }
-  console.warn(`[generatePhrase] falhou após ${maxAttempts} tentativas (${getLLMProvider()})`);
+  console.warn(`[generatePhrase] falhou após ${maxAttempts} tentativas (${getLLMProvider()}), usando fallback`);
+  return generateFallbackPhrase(targetLanguage, nativeLanguage, words, options?.excludePhrases ?? []);
+}
+
+/** Fallback: gera frase simples (2 palavras) quando o LLM falha */
+async function generateFallbackPhrase(
+  targetLanguage: string,
+  nativeLanguage: string,
+  words: { word: string; translation: string }[],
+  excludePhrases: string[]
+): Promise<PhraseResult | null> {
+  if (words.length < 2) return null;
+
+  const shuffled = [...words].sort(() => Math.random() - 0.5);
+  for (let i = 0; i < shuffled.length; i++) {
+    for (let j = 0; j < shuffled.length; j++) {
+      if (i === j) continue;
+      const w1 = shuffled[i].word;
+      const w2 = shuffled[j].word;
+      const sentenceTarget = w1.charAt(0).toUpperCase() + w1.slice(1).toLowerCase() + " " + w2.toLowerCase();
+      if (excludePhrases.some((p) => p.toLowerCase() === sentenceTarget.toLowerCase())) continue;
+
+      const sentenceNative = await translateSimple(sentenceTarget, targetLanguage, nativeLanguage);
+      if (sentenceNative) {
+        return {
+          sentenceTarget,
+          sentenceNative,
+          wordsUsed: [w1, w2],
+        };
+      }
+    }
+  }
   return null;
+}
+
+async function translateSimple(
+  sentence: string,
+  fromLang: string,
+  toLang: string
+): Promise<string | null> {
+  const prompt = `Traduza exatamente esta frase de ${fromLang} para ${toLang}. Responda APENAS com a tradução, nada mais.\n\n"${sentence}"`;
+  try {
+    if (GROQ_API_KEY) {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: GROQ_MODEL,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0,
+          max_tokens: 100,
+        }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+      const raw = data.choices?.[0]?.message?.content?.trim() ?? "";
+      return raw.replace(/^["']|["']$/g, "").trim() || raw;
+    }
+    const res = await fetch(`${OLLAMA_BASE}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: MODEL,
+        prompt,
+        stream: false,
+        options: { temperature: 0 },
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { response?: string };
+    return data.response?.trim() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function generateWithGroq(prompt: string): Promise<PhraseResult | null> {
