@@ -77,6 +77,7 @@ export async function setMyCommands(): Promise<boolean> {
 
   const commands = [
     { command: "start", description: "Iniciar / Welcome" },
+    { command: "status", description: "Ver qual LLM está ativo" },
     { command: "addword", description: "Adicionar nova palavra" },
     { command: "addphrase", description: "Extrair palavras de uma frase" },
     { command: "frase", description: "Gerar frase com suas palavras" },
