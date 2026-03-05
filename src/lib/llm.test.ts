@@ -9,6 +9,8 @@ const words = [
   { word: "fru", translation: "esposa" },
   { word: "vän", translation: "amigo" },
   { word: "kvinna", translation: "mulher" },
+  { word: "Anna", translation: "Anna" },
+  { word: "Maria", translation: "Maria" },
 ];
 
 describe("validateSwedishGrammar", () => {
@@ -18,14 +20,14 @@ describe("validateSwedishGrammar", () => {
   it("aceita Min fru", () => {
     expect(validateSwedishGrammar("Min fru", words).valid).toBe(true);
   });
-  it("aceita Jag heter fru", () => {
-    expect(validateSwedishGrammar("Jag heter fru", words).valid).toBe(true);
+  it("aceita Jag heter Anna", () => {
+    expect(validateSwedishGrammar("Jag heter Anna", words).valid).toBe(true);
   });
   it("aceita Min fru odlar", () => {
     expect(validateSwedishGrammar("Min fru odlar", words).valid).toBe(true);
   });
-  it("aceita Min vän heter fru", () => {
-    expect(validateSwedishGrammar("Min vän heter fru", words).valid).toBe(true);
+  it("aceita Min vän heter Maria", () => {
+    expect(validateSwedishGrammar("Min vän heter Maria", words).valid).toBe(true);
   });
   it("rejeita Min odlar", () => {
     const r = validateSwedishGrammar("Min odlar", words);
@@ -40,6 +42,16 @@ describe("validateSwedishGrammar", () => {
   it("rejeita Vän kvinna", () => {
     const r = validateSwedishGrammar("Vän kvinna", words);
     expect(r.valid).toBe(false);
+  });
+  it("rejeita Jag heter fru (heter exige nome próprio)", () => {
+    const r = validateSwedishGrammar("Jag heter fru", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("nome próprio");
+  });
+  it("rejeita Min fru heter vän (heter exige nome próprio)", () => {
+    const r = validateSwedishGrammar("Min fru heter vän", words);
+    expect(r.valid).toBe(false);
+    expect(r.reason).toContain("nome próprio");
   });
   it("rejeita Jag kvinna", () => {
     const r = validateSwedishGrammar("Jag kvinna", words);

@@ -18,7 +18,7 @@ export interface PhraseResult {
 function getGrammarRules(targetLanguage: string): string | null {
   const lang = targetLanguage.toLowerCase();
   if (lang.includes("svensk") || lang.includes("sueco") || lang === "sv") {
-    return "heter e odlar exigem sujeito explícito (jag ou min+substantivo). min exige substantivo depois (min vän, min fru). Forme frases com sujeito+verbo ou sujeito+verbo+complemento. Ex: Jag heter vän, Min fru odlar.";
+    return "heter exige NOME PRÓPRIO como complemento (ex: Anna, Erik), nunca substantivo comum (vän, fru, kvinna). odlar exige sujeito (jag ou min+substantivo). min exige substantivo depois. Ex válidos: Jag heter Anna, Min fru odlar, Min fru heter Maria. Ex inválidos: Jag heter fru (fru não é nome).";
   }
   if (lang.includes("inglês") || lang.includes("english") || lang === "en") {
     return "Verbos exigem sujeito. Possessivos (my, your) exigem substantivo depois. Forme frases gramaticalmente corretas.";
@@ -91,7 +91,7 @@ function extractWordsFromSentence(sentence: string): string[] {
     .filter((w) => w.length > 0);
 }
 
-/** Léxico sueco: classificação gramatical (PRON, POSS, NOUN, VERB_INTRANS, VERB_NAME) */
+/** Léxico sueco: classificação gramatical (PRON, POSS, NOUN, PROPN, VERB_INTRANS, VERB_NAME) */
 const SWEDISH_LEXICON: Record<string, string> = {
   jag: "PRON",
   du: "PRON",
@@ -113,18 +113,34 @@ const SWEDISH_LEXICON: Record<string, string> = {
   kommer: "VERB_INTRANS",
 };
 
-/** Padrões gramaticais válidos (sueco): sequências de categorias */
+/** Nomes próprios suecos/nórdicos (heter exige PROPN como complemento) */
+const SWEDISH_PROPER_NAMES = new Set([
+  "anna", "erik", "maria", "johan", "lars", "sofia", "emma", "oscar", "alice", "william",
+  "elisa", "axel", "maja", "hugo", "ella", "noah", "alma", "leo", "olivia", "lucas",
+  "joão", "pedro", "carlos", "lucia", "ingrid", "björn", "karl", "stina",
+]);
+
+/** Padrões gramaticais válidos (sueco): heter exige PROPN, não NOUN */
 const SWEDISH_VALID_PATTERNS = [
   ["PRON", "VERB_INTRANS"],
   ["POSS", "NOUN"],
-  ["PRON", "VERB_NAME", "NOUN"],
+  ["PRON", "VERB_NAME", "PROPN"],
   ["POSS", "NOUN", "VERB_INTRANS"],
-  ["POSS", "NOUN", "VERB_NAME", "NOUN"],
+  ["POSS", "NOUN", "VERB_NAME", "PROPN"],
 ];
 
-function getSwedishCategory(word: string, userWords: Set<string>): string {
+function getSwedishCategory(
+  word: string,
+  userWords: Set<string>,
+  wordToTranslation?: Map<string, string>
+): string {
   const lower = word.toLowerCase();
   if (SWEDISH_LEXICON[lower]) return SWEDISH_LEXICON[lower];
+  if (SWEDISH_PROPER_NAMES.has(lower)) return "PROPN";
+  if (wordToTranslation) {
+    const trans = wordToTranslation.get(lower);
+    if (trans && trans.trim().toLowerCase() === lower) return "PROPN";
+  }
   if (userWords.has(lower)) return "NOUN";
   return "UNKNOWN";
 }
@@ -132,12 +148,13 @@ function getSwedishCategory(word: string, userWords: Set<string>): string {
 /** Valida se a frase em sueco segue a gramática (padrões A-E) */
 export function validateSwedishGrammar(
   sentenceTarget: string,
-  userWords: { word: string }[]
+  userWords: { word: string; translation?: string }[]
 ): { valid: boolean; reason?: string } {
   const tokens = extractWordsFromSentence(sentenceTarget);
   if (tokens.length === 0) return { valid: false, reason: "frase vazia" };
   const userSet = new Set(userWords.map((w) => w.word.toLowerCase()));
-  const categories = tokens.map((t) => getSwedishCategory(t, userSet));
+  const wordToTrans = new Map(userWords.map((w) => [w.word.toLowerCase(), w.translation ?? ""]));
+  const categories = tokens.map((t) => getSwedishCategory(t, userSet, wordToTrans));
   if (categories.some((c) => c === "UNKNOWN")) return { valid: false, reason: "palavra desconhecida" };
 
   const matchesPattern = SWEDISH_VALID_PATTERNS.some(
@@ -161,8 +178,17 @@ export function validateSwedishGrammar(
     return { valid: false, reason: "possessivo deve vir antes do substantivo" };
   }
   const heterIdx = categories.indexOf("VERB_NAME");
-  if (heterIdx >= 0 && (heterIdx === categories.length - 1 || categories[heterIdx + 1] !== "NOUN")) {
-    return { valid: false, reason: "heter exige complemento nominal" };
+  if (heterIdx >= 0) {
+    if (heterIdx === categories.length - 1) {
+      return { valid: false, reason: "heter exige complemento" };
+    }
+    const complement = categories[heterIdx + 1];
+    if (complement === "NOUN") {
+      return { valid: false, reason: "heter exige nome próprio (ex: Anna, Erik), não substantivo comum" };
+    }
+    if (complement !== "PROPN") {
+      return { valid: false, reason: "heter exige complemento nominal" };
+    }
   }
   return { valid: false, reason: "estrutura gramatical inválida" };
 }
@@ -236,6 +262,7 @@ function classifyWords(words: { word: string; translation: string }[]): {
   possessives: { word: string; translation: string }[];
   verbs: { word: string; translation: string }[];
   nouns: { word: string; translation: string }[];
+  properNames: { word: string; translation: string }[];
 } {
   const SUBJECTS = new Set(["jag", "du", "han", "hon", "vi", "de"]);
   const POSSESSIVES = new Set(["min", "mitt", "mina", "din", "ditt", "dina"]);
@@ -244,14 +271,18 @@ function classifyWords(words: { word: string; translation: string }[]): {
   const possessives: { word: string; translation: string }[] = [];
   const verbs: { word: string; translation: string }[] = [];
   const nouns: { word: string; translation: string }[] = [];
+  const properNames: { word: string; translation: string }[] = [];
   for (const w of words) {
     const lower = w.word.toLowerCase();
+    const transLower = w.translation?.trim().toLowerCase() ?? "";
+    const isLikelyName = transLower === lower || SWEDISH_PROPER_NAMES.has(lower);
     if (SUBJECTS.has(lower)) subjects.push(w);
     else if (POSSESSIVES.has(lower)) possessives.push(w);
     else if (VERBS.has(lower)) verbs.push(w);
+    else if (isLikelyName) properNames.push(w);
     else nouns.push(w);
   }
-  return { subjects, possessives, verbs, nouns };
+  return { subjects, possessives, verbs, nouns, properNames };
 }
 
 /** Fallback: usa templates gramaticais quando o LLM falha */
@@ -267,7 +298,7 @@ async function generateFallbackPhrase(
     return generateRandomPairFallback(targetLanguage, nativeLanguage, words, excludePhrases);
   }
 
-  const { subjects, possessives, verbs, nouns } = classifyWords(words);
+  const { subjects, possessives, verbs, nouns, properNames } = classifyWords(words);
   const excludeSet = new Set(excludePhrases.map((p) => p.toLowerCase()));
   const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
 
@@ -304,12 +335,10 @@ async function generateFallbackPhrase(
           if (v.word.toLowerCase() === "odlar") {
             const sent = `${cap(p.word)} ${n.word} ${v.word}`;
             if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [p, n, v] });
-          } else if (v.word.toLowerCase() === "heter" && nouns.length > 1) {
-            for (const n2 of nouns) {
-              if (n2.word !== n.word) {
-                const sent = `${cap(p.word)} ${n.word} ${v.word} ${n2.word}`;
-                if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [p, n, v, n2] });
-              }
+          } else if (v.word.toLowerCase() === "heter" && properNames.length > 0) {
+            for (const pn of properNames) {
+              const sent = `${cap(p.word)} ${n.word} ${v.word} ${pn.word}`;
+              if (!excludeSet.has(sent.toLowerCase())) candidates.push({ sentenceTarget: sent, wordsUsed: [p, n, v, pn] });
             }
           }
         }
