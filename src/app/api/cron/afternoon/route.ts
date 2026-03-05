@@ -24,13 +24,7 @@ export async function GET(request: NextRequest) {
     const phrasesToday = await prisma.phraseSent.findMany({
       where: { userId: user.id, sentAt: { gte: startOfDay } },
     });
-    const countByPhrase = new Map<string, number>();
-    for (const p of phrasesToday) {
-      countByPhrase.set(p.sentenceTarget, (countByPhrase.get(p.sentenceTarget) ?? 0) + 1);
-    }
-    const excludePhrases = Array.from(countByPhrase.entries())
-      .filter(([, c]) => c >= 2)
-      .map(([s]) => s);
+    const excludePhrases = [...new Set(phrasesToday.map((p: { sentenceTarget: string }) => p.sentenceTarget))];
 
     const result = await generatePhrase(
       user.targetLanguage,

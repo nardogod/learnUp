@@ -173,4 +173,7 @@ describe("validateSwedishGrammar", () => {
   it("aceita Varifrån kommer du", () => {
     expect(validateSwedishGrammar("Varifrån kommer du", words).valid).toBe(true);
   });
+  it("aceita Jag mår bra, tack", () => {
+    expect(validateSwedishGrammar("Jag mår bra tack", words).valid).toBe(true);
+  });
 });

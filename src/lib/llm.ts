@@ -42,7 +42,7 @@ function buildPrompt(
     .join("\n");
   const excludeNote =
     options?.excludePhrases && options.excludePhrases.length > 0
-      ? `\nNÃO repita estas frases (já enviadas 2x hoje):\n${options.excludePhrases.map((p) => `- ${p}`).join("\n")}\n`
+      ? `\nNÃO repita NENHUMA destas frases (já enviadas hoje):\n${options.excludePhrases.map((p) => `- ${p}`).join("\n")}\n`
       : "";
   const forbidNote = `\nNUNCA gere frases contendo: "Min ifrån", "Min och", "Min Vart", "Min varifrån" - são gramaticalmente inválidas.\n`;
   const allowedWords = words.map((w) => w.word).join(", ");
@@ -63,7 +63,7 @@ ${strictRule}
 ${grammarNote}
 ${forbidNote}
 
-VARIEDADE OBRIGATÓRIA: NÃO comece sempre com "Min". Alterne entre: Jag/Du+verbo (Jag heter Anna, Du kommer), Varifrån/Hur+verbo (Varifrån kommer du?), Det+är+adj (Det är bra), Min+substantivo (Min vän heter Maria) - use às vezes. Use 4+ palavras quando possível.
+VARIEDADE: Não repita frases da lista acima. Alterne estruturas: Jag/Du+verbo, Varifrån/Hur+verbo+du, Det är bra, Min vän heter X. Quando houver "och" (e), bra (bem), tack (obrigado), tente frases como "Jag mår bra, tack" ou "Varifrån kommer du och hur mår du?". Prefira 4+ palavras.
 
 Gere:
 1) Uma frase natural em ${targetLanguage} usando APENAS palavras da lista
@@ -172,6 +172,8 @@ const SWEDISH_VALID_PATTERNS = [
   ["VERB_COPULA", "PRON", "ADJ"],
   ["VERB_COPULA", "DET", "ADJ"],
   ["PRON", "VERB_INTRANS", "CONJ", "PRON", "VERB_INTRANS"],
+  ["PRON", "VERB_INTRANS", "ADJ", "INTJ"],
+  ["ADV", "VERB_INTRANS", "PRON", "CONJ", "ADV", "VERB_INTRANS", "PRON"],
 ];
 
 /** Combinações adjacentes proibidas */
