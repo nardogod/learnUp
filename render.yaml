@@ -20,7 +20,7 @@ services:
     name: learnup-nlp
     runtime: docker
     dockerfilePath: ./nlp-service/Dockerfile
-    dockerContext: ./nlp-service
+    dockerContext: .
     region: oregon
     plan: free
     healthCheckPath: /health

@@ -8,14 +8,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Python deps
-COPY requirements.txt .
+# Python deps (contexto = raiz do repo)
+COPY nlp-service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Modelo sueco oficial spaCy (~13MB)
 RUN python -m spacy download sv_core_news_sm
 
-COPY main.py .
+COPY nlp-service/main.py .
 
 # Porta padrão Render
 ENV PORT=10000
