@@ -44,6 +44,7 @@ function buildPrompt(
     options?.excludePhrases && options.excludePhrases.length > 0
       ? `\nNÃO repita estas frases (já enviadas 2x hoje):\n${options.excludePhrases.map((p) => `- ${p}`).join("\n")}\n`
       : "";
+  const forbidNote = `\nNUNCA gere frases contendo: "Min ifrån", "Min och", "Min Vart", "Min varifrån" - são gramaticalmente inválidas.\n`;
   const allowedWords = words.map((w) => w.word).join(", ");
   const strictRule = `REGRA CRÍTICA - OBRIGATÓRIO: A frase em ${targetLanguage} deve conter APENAS estas palavras: [${allowedWords}]. NENHUMA outra palavra é permitida.`;
 
@@ -60,8 +61,9 @@ ${excludeNote}
 
 ${strictRule}
 ${grammarNote}
+${forbidNote}
 
-PRIORIDADE: Gere frases COERENTES e com SENTIDO. Prefira frases mais longas (4+ palavras) quando possível. Evite combinações curtas sem sentido (ex: "Min ifrån", "Min och"). A frase deve soar natural e ter um significado claro.
+PRIORIDADE: Gere frases COERENTES e com SENTIDO. OBRIGATÓRIO: use 4+ palavras quando houver palavras suficientes. Evite frases de 2 palavras (ex: "Kommer du") se puder formar frases mais longas como "Varifrån kommer du" ou "Min vän heter Anna". Varie as estruturas - não repita o mesmo padrão.
 
 Gere:
 1) Uma frase natural em ${targetLanguage} usando APENAS palavras da lista
@@ -220,11 +222,29 @@ function getSwedishCategory(
   return "UNKNOWN";
 }
 
+/** Substrings proibidas (POSS + adv/prep/conj - sempre inválido) */
+const SWEDISH_FORBIDDEN_SUBSTRINGS = [
+  "min ifrån",
+  "min varifrån",
+  "min vart",
+  "min och",
+  "min hur",
+  "min var",
+  "din ifrån",
+  "din varifrån",
+  "din vart",
+  "din och",
+];
+
 /** Valida se a frase em sueco segue a gramática (padrões A-E) */
 export function validateSwedishGrammar(
   sentenceTarget: string,
   userWords: { word: string; translation?: string; wordType?: string | null }[]
 ): { valid: boolean; reason?: string } {
+  const lower = sentenceTarget.toLowerCase();
+  const forbidden = SWEDISH_FORBIDDEN_SUBSTRINGS.find((s) => lower.includes(s));
+  if (forbidden) return { valid: false, reason: `combinação inválida: "${forbidden}"` };
+
   const tokens = extractWordsFromSentence(sentenceTarget);
   if (tokens.length === 0) return { valid: false, reason: "frase vazia" };
   const userSet = new Set(userWords.map((w) => w.word.toLowerCase()));
@@ -336,9 +356,30 @@ export async function generatePhrase(
       continue;
     }
 
+    const wordCount = extractWordsFromSentence(result.sentenceTarget).length;
+    if (words.length >= 8 && wordCount <= 2) {
+      console.warn(`[generatePhrase] attempt ${attempt}: frase muito curta (${wordCount} palavras), preferir 4+`);
+      currentOptions = {
+        ...currentOptions,
+        excludePhrases: [...(currentOptions?.excludePhrases ?? []), result.sentenceTarget],
+      };
+      continue;
+    }
+
     const lang = targetLanguage.toLowerCase();
     const isSwedish = lang.includes("svensk") || lang.includes("sueco") || lang.includes("swedish") || lang === "sv";
     if (isSwedish) {
+      const substringCheck = SWEDISH_FORBIDDEN_SUBSTRINGS.find((s) =>
+        result.sentenceTarget.toLowerCase().includes(s)
+      );
+      if (substringCheck) {
+        console.warn(`[generatePhrase] attempt ${attempt}: substring proibida: "${substringCheck}"`);
+        currentOptions = {
+          ...currentOptions,
+          excludePhrases: [...(currentOptions?.excludePhrases ?? []), result.sentenceTarget],
+        };
+        continue;
+      }
       const spacyResult = await validateWithSpacy(result.sentenceTarget);
       const grammar = spacyResult
         ? { valid: spacyResult.valid, reason: spacyResult.reason }

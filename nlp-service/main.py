@@ -165,6 +165,18 @@ def validate_sentence(req: ValidateRequest):
         raise HTTPException(503, "Modelo NLP não carregado")
 
     sentence = req.sentence.strip()
+    lower = sentence.lower()
+    forbidden = [
+        "min ifrån", "min varifrån", "min vart", "min och", "min hur", "min var",
+        "din ifrån", "din varifrån", "din vart", "din och",
+    ]
+    for s in forbidden:
+        if s in lower:
+            return ValidateResponse(
+                valid=False,
+                reason=f"Combinação inválida: \"{s}\"",
+            )
+
     doc = nlp(sentence)
     tokens = [
         PosToken(
