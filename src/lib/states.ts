@@ -396,7 +396,14 @@ export async function handleMessage(user: User, text: string, chatId: string): P
         tempWord: `${tempWord}|||${translation}`,
       },
     });
-    await sendMessage(chatId, getMessage(user.nativeLanguage, "wordTipPrompt", { word: tempWord }));
+    const skipLabel = getMessage(user.nativeLanguage, "wordTipSkip");
+    await sendMessage(chatId, getMessage(user.nativeLanguage, "wordTipPrompt", { word: tempWord }), {
+      reply_markup: {
+        keyboard: [[skipLabel]],
+        resize_keyboard: true,
+        one_time_keyboard: true,
+      },
+    });
     return;
   }
 
@@ -410,7 +417,9 @@ export async function handleMessage(user: User, text: string, chatId: string): P
     const word = stored.slice(0, sep);
     const translation = stored.slice(sep + 3);
     const tip = text.trim();
-    const description = tip && !tip.startsWith("/") ? tip : null;
+    const skipLabels = ["pular", "skip", "hoppa över", "hoppa", "pula", "-"];
+    const isSkip = skipLabels.includes(tip.toLowerCase());
+    const description = !isSkip && tip && !tip.startsWith("/") ? tip : null;
 
     await prisma.word.create({
       data: {
@@ -426,7 +435,9 @@ export async function handleMessage(user: User, text: string, chatId: string): P
     });
     const newCount = await prisma.word.count({ where: { userId: user.id } });
     const msg = getMessage(user.nativeLanguage, "wordSaved", { word, translation });
-    await sendMessage(chatId, `${msg}\n\nVocê tem ${newCount} palavras.`);
+    await sendMessage(chatId, `${msg}\n\nVocê tem ${newCount} palavras.`, {
+      reply_markup: { remove_keyboard: true },
+    });
     return;
   }
 

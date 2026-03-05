@@ -3,7 +3,7 @@ const TELEGRAM_API = "https://api.telegram.org/bot";
 export async function sendMessage(
   chatId: string | number,
   text: string,
-  options?: { parse_mode?: "HTML" | "Markdown" }
+  options?: { parse_mode?: "HTML" | "Markdown"; reply_markup?: Record<string, unknown> }
 ): Promise<boolean> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
@@ -16,6 +16,7 @@ export async function sendMessage(
     chat_id: chatId,
     text,
     parse_mode: options?.parse_mode ?? undefined,
+    reply_markup: options?.reply_markup ?? undefined,
   };
 
   try {
